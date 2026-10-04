@@ -175,7 +175,7 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
     }
 
     const goldData = {
-      role: role || "Gold",
+      role: role || "gold",
       goldStart: goldStart || new Date().toISOString(),
       goldExpiry: goldExpiry,
       goldPlan: planTitle || "GOLD Subscription",
