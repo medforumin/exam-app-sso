@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, collection, getDocs, addDoc, deleteDoc, updateDoc, doc, getDoc, setDoc, writeBatch, deleteField
+  getFirestore, collection, getDocs, addDoc, deleteDoc, updateDoc, doc, getDoc, setDoc, writeBatch, deleteField, query, where
 } from "firebase/firestore";
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
@@ -332,35 +332,27 @@ export function AppProvider({ children }) {
   const fetchData = async (forceSync = false) => {
     setLoading(true);
 
-    const CACHE_KEY = 'questions_data'; const TIME_KEY = 'last_sync_time'; const ROLE_KEY = 'last_sync_role';
-    const cachedData = localStorage.getItem(CACHE_KEY);
-    const lastSyncTime = localStorage.getItem(TIME_KEY);
-    const lastSyncRole = localStorage.getItem(ROLE_KEY);
-    const now = Date.now();
-    const isExpired = !lastSyncTime || (now - parseInt(lastSyncTime) > 12 * 60 * 60 * 1000);
-    const shouldFetch = forceSync || !cachedData || isExpired || lastSyncRole !== userRole;
+    const CACHE_KEY = 'questions_data';
+    const TIME_KEY = 'last_sync_time_iso';
+    const ROLE_KEY = 'last_sync_role';
 
-    if (!shouldFetch) {
-      setQuestions(JSON.parse(cachedData));
-      setAnnouncement(localStorage.getItem('announcement_data') || '');
-      setTeaser(localStorage.getItem('teaser_msg') || '');
-      setUpgradeMsg(localStorage.getItem('upgrade_msg') || '🔒 High-yield answers & mnemonics are reserved for GOLD members. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW ⚡</a>');
-      setTeaserQuestionCount(localStorage.getItem('teaser_count') || '500+');
-      try { setCurriculumMap(JSON.parse(localStorage.getItem('curriculum_map') || '{}')); } catch (e) { }
-      const cachedInfoPopupContent = localStorage.getItem('info_popup_content') || '';
-      const cachedShowInfoPopup = localStorage.getItem('info_popup_enabled') === 'true';
-      const cachedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
-      const cachedInfoPopupId = localStorage.getItem('info_popup_id') || '';
-      setInfoPopupContent(cachedInfoPopupContent);
-      setShowInfoPopup(cachedShowInfoPopup);
-      setInfoPopupTarget(cachedInfoPopupTarget);
-      setInfoPopupId(cachedInfoPopupId);
-      checkAndTriggerInfoPopup(cachedInfoPopupContent, cachedShowInfoPopup, cachedInfoPopupTarget, cachedInfoPopupId);
-      fetchGlobalSettings();
-      setLoading(false); return;
+    let cachedQuestions = [];
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) cachedQuestions = JSON.parse(raw);
+    } catch (e) {
+      console.warn("Corrupted questions cache detected, clearing:", e.message);
+      localStorage.removeItem(CACHE_KEY);
+      cachedQuestions = [];
     }
 
-    let allQuestions = [];
+    const lastSyncTimeIso = localStorage.getItem(TIME_KEY);
+    const lastSyncRole = localStorage.getItem(ROLE_KEY);
+    const nowIso = new Date().toISOString();
+
+    // Check if full fetch is required (forceSync, no cached questions, role change, or missing lastSyncTime)
+    const isFullFetchRequired = forceSync || !cachedQuestions.length || !lastSyncTimeIso || lastSyncRole !== userRole;
+
     let fetchedAnnouncement = '';
     let fetchedTeaser = '';
     let fetchedUpgradeMsg = '';
@@ -371,6 +363,26 @@ export function AppProvider({ children }) {
     let fetchedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
     let fetchedInfoPopupId = localStorage.getItem('info_popup_id') || '';
 
+    // Fast Path: Render cached questions immediately if full fetch is not required
+    if (!isFullFetchRequired) {
+      setQuestions(cachedQuestions);
+      setAnnouncement(localStorage.getItem('announcement_data') || '');
+      setTeaser(localStorage.getItem('teaser_msg') || '');
+      setUpgradeMsg(localStorage.getItem('upgrade_msg') || '🔒 High-yield answers & mnemonics are reserved for GOLD members. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW ⚡</a>');
+      setTeaserQuestionCount(localStorage.getItem('teaser_count') || '500+');
+      try { setCurriculumMap(JSON.parse(localStorage.getItem('curriculum_map') || '{}')); } catch (e) { }
+
+      const cachedInfoPopupContent = localStorage.getItem('info_popup_content') || '';
+      const cachedShowInfoPopup = localStorage.getItem('info_popup_enabled') === 'true';
+      const cachedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
+      const cachedInfoPopupId = localStorage.getItem('info_popup_id') || '';
+      setInfoPopupContent(cachedInfoPopupContent);
+      setShowInfoPopup(cachedShowInfoPopup);
+      setInfoPopupTarget(cachedInfoPopupTarget);
+      setInfoPopupId(cachedInfoPopupId);
+      checkAndTriggerInfoPopup(cachedInfoPopupContent, cachedShowInfoPopup, cachedInfoPopupTarget, cachedInfoPopupId);
+    }
+
     if (ENABLE_FIREBASE && db) {
       try {
         if (currentUser) {
@@ -380,38 +392,107 @@ export function AppProvider({ children }) {
             if (auth) await signOut(auth); setLoading(false); return;
           }
         }
-        // Fetch base questions collection (2-document architecture: questions + answers_gold)
-        const qSnapshot = await getDocs(collection(db, "questions"));
 
-        const goldAnswers = {};
-        if (userRole === 'gold' || userRole === 'admin') {
-          const goldAnsSnapshot = await getDocs(collection(db, "answers_gold"));
-          goldAnsSnapshot.forEach(d => goldAnswers[d.id] = d.data());
-        }
+        if (isFullFetchRequired) {
+          // --- FULL FETCH ---
+          console.log("[DeltaSync] Performing Full Fetch from Firestore...");
+          const qSnapshot = await getDocs(collection(db, "questions"));
 
-        allQuestions = qSnapshot.docs.map(docSnap => {
-          const qData = docSnap.data();
-          const isGoldQ = qData.accessLevel === 'gold' || qData.hasGoldAnswer || qData.collection === 'questions_gold';
-
-          let finalAnswerText = qData.answerText || "";
-          let finalMnemonic = qData.mnemonic || "";
-
-          // If user is Gold/Admin and this question has a gold answer in answers_gold, override with premium content
-          if ((userRole === 'gold' || userRole === 'admin') && isGoldQ && goldAnswers[docSnap.id]) {
-            if (goldAnswers[docSnap.id].answerText !== undefined) finalAnswerText = goldAnswers[docSnap.id].answerText;
-            if (goldAnswers[docSnap.id].mnemonic !== undefined) finalMnemonic = goldAnswers[docSnap.id].mnemonic;
+          const goldAnswers = {};
+          if (userRole === 'gold' || userRole === 'admin') {
+            const goldAnsSnapshot = await getDocs(collection(db, "answers_gold"));
+            goldAnsSnapshot.forEach(d => goldAnswers[d.id] = d.data());
           }
 
-          return {
-            id: docSnap.id,
-            ...qData,
-            collection: 'questions',
-            accessLevel: isGoldQ ? 'gold' : 'standard',
-            hasGoldAnswer: isGoldQ,
-            answerText: finalAnswerText,
-            mnemonic: finalMnemonic
-          };
-        });
+          const fullQuestions = qSnapshot.docs.map(docSnap => {
+            const qData = docSnap.data();
+            const isGoldQ = qData.accessLevel === 'gold' || qData.hasGoldAnswer || qData.collection === 'questions_gold';
+
+            let finalAnswerText = qData.answerText || "";
+            let finalMnemonic = qData.mnemonic || "";
+
+            if ((userRole === 'gold' || userRole === 'admin') && isGoldQ && goldAnswers[docSnap.id]) {
+              if (goldAnswers[docSnap.id].answerText !== undefined) finalAnswerText = goldAnswers[docSnap.id].answerText;
+              if (goldAnswers[docSnap.id].mnemonic !== undefined) finalMnemonic = goldAnswers[docSnap.id].mnemonic;
+            }
+
+            return {
+              id: docSnap.id,
+              ...qData,
+              collection: 'questions',
+              accessLevel: isGoldQ ? 'gold' : 'standard',
+              hasGoldAnswer: isGoldQ,
+              answerText: finalAnswerText,
+              mnemonic: finalMnemonic
+            };
+          });
+
+          setQuestions(fullQuestions);
+          localStorage.setItem(CACHE_KEY, JSON.stringify(fullQuestions));
+        } else {
+          // --- DELTA SYNC (INCREMENTAL) ---
+          console.log(`[DeltaSync] Querying updates after ${lastSyncTimeIso}...`);
+          const qDeltaQuery = query(collection(db, "questions"), where("updatedAt", ">", lastSyncTimeIso));
+          const qDeltaSnap = await getDocs(qDeltaQuery);
+
+          let goldDeltaMap = {};
+          if (userRole === 'gold' || userRole === 'admin') {
+            try {
+              const goldDeltaQuery = query(collection(db, "answers_gold"), where("updatedAt", ">", lastSyncTimeIso));
+              const goldDeltaSnap = await getDocs(goldDeltaQuery);
+              goldDeltaSnap.forEach(d => goldDeltaMap[d.id] = d.data());
+            } catch (gErr) {
+              console.warn("[DeltaSync] Gold answers delta query warning:", gErr.message);
+            }
+          }
+
+          if (!qDeltaSnap.empty || Object.keys(goldDeltaMap).length > 0) {
+            console.log(`[DeltaSync] Received ${qDeltaSnap.size} question updates and ${Object.keys(goldDeltaMap).length} gold answer updates.`);
+            const questionsMap = new Map();
+            cachedQuestions.forEach(q => questionsMap.set(q.id, q));
+
+            qDeltaSnap.docs.forEach(docSnap => {
+              const qData = docSnap.data();
+              const isGoldQ = qData.accessLevel === 'gold' || qData.hasGoldAnswer || qData.collection === 'questions_gold';
+              let finalAnswerText = qData.answerText || "";
+              let finalMnemonic = qData.mnemonic || "";
+
+              if ((userRole === 'gold' || userRole === 'admin') && isGoldQ && goldDeltaMap[docSnap.id]) {
+                if (goldDeltaMap[docSnap.id].answerText !== undefined) finalAnswerText = goldDeltaMap[docSnap.id].answerText;
+                if (goldDeltaMap[docSnap.id].mnemonic !== undefined) finalMnemonic = goldDeltaMap[docSnap.id].mnemonic;
+              }
+
+              questionsMap.set(docSnap.id, {
+                id: docSnap.id,
+                ...qData,
+                collection: 'questions',
+                accessLevel: isGoldQ ? 'gold' : 'standard',
+                hasGoldAnswer: isGoldQ,
+                answerText: finalAnswerText,
+                mnemonic: finalMnemonic
+              });
+            });
+
+            // Update any existing questions in questionsMap with new gold answers if present
+            Object.keys(goldDeltaMap).forEach(qId => {
+              if (questionsMap.has(qId)) {
+                const existing = questionsMap.get(qId);
+                questionsMap.set(qId, {
+                  ...existing,
+                  answerText: goldDeltaMap[qId].answerText !== undefined ? goldDeltaMap[qId].answerText : existing.answerText,
+                  mnemonic: goldDeltaMap[qId].mnemonic !== undefined ? goldDeltaMap[qId].mnemonic : existing.mnemonic,
+                  updatedAt: goldDeltaMap[qId].updatedAt || existing.updatedAt
+                });
+              }
+            });
+
+            const updatedQuestions = Array.from(questionsMap.values());
+            setQuestions(updatedQuestions);
+            localStorage.setItem(CACHE_KEY, JSON.stringify(updatedQuestions));
+          } else {
+            console.log("[DeltaSync] No new document changes on server.");
+          }
+        }
 
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
@@ -434,24 +515,22 @@ export function AppProvider({ children }) {
         }
       } catch (error) {
         console.error("fetchData error:", error);
-        if (cachedData) { alert("Network error. Loaded cached data."); setQuestions(JSON.parse(cachedData)); setLoading(false); return; }
+        if (cachedQuestions.length) {
+          console.warn("[DeltaSync] Network error, using cached questions.");
+          setQuestions(cachedQuestions);
+          setLoading(false);
+          return;
+        }
       }
     } else {
       await new Promise(r => setTimeout(r, 800));
-      allQuestions = [...INITIAL_DATA_STANDARD];
-      if (userRole === 'gold' || userRole === 'admin') allQuestions = [...allQuestions, ...INITIAL_DATA_GOLD];
-      fetchedAnnouncement = localStorage.getItem('announcement') || '';
-      fetchedTeaser = localStorage.getItem('teaser_msg') || 'Upgrade to GOLD to unlock premium questions!';
-      fetchedUpgradeMsg = localStorage.getItem('upgrade_msg') || '🔒 High-yield answers & mnemonics are reserved for GOLD members. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW ⚡</a>';
-      fetchedTeaserCount = localStorage.getItem('teaser_count') || '500+';
-      try { fetchedCurriculum = JSON.parse(localStorage.getItem('curriculum_map') || '{}'); } catch (e) { }
-      fetchedInfoPopupContent = localStorage.getItem('info_popup_content') || '';
-      fetchedShowInfoPopup = localStorage.getItem('info_popup_enabled') === 'true';
-      fetchedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
-      fetchedInfoPopupId = localStorage.getItem('info_popup_id') || '';
+      const mockQuestions = [...INITIAL_DATA_STANDARD];
+      if (userRole === 'gold' || userRole === 'admin') mockQuestions.push(...INITIAL_DATA_GOLD);
+      setQuestions(mockQuestions);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(mockQuestions));
     }
 
-    setQuestions(allQuestions); setAnnouncement(fetchedAnnouncement); setTeaser(fetchedTeaser); setUpgradeMsg(fetchedUpgradeMsg);
+    setAnnouncement(fetchedAnnouncement); setTeaser(fetchedTeaser); setUpgradeMsg(fetchedUpgradeMsg);
     setTeaserQuestionCount(fetchedTeaserCount); setCurriculumMap(fetchedCurriculum);
     setInfoPopupContent(fetchedInfoPopupContent);
     setShowInfoPopup(fetchedShowInfoPopup);
@@ -460,9 +539,12 @@ export function AppProvider({ children }) {
 
     checkAndTriggerInfoPopup(fetchedInfoPopupContent, fetchedShowInfoPopup, fetchedInfoPopupTarget, fetchedInfoPopupId);
 
-    localStorage.setItem(CACHE_KEY, JSON.stringify(allQuestions)); localStorage.setItem(TIME_KEY, now.toString());
-    localStorage.setItem(ROLE_KEY, userRole); localStorage.setItem('announcement_data', fetchedAnnouncement);
-    localStorage.setItem('teaser_msg', fetchedTeaser); localStorage.setItem('upgrade_msg', fetchedUpgradeMsg); localStorage.setItem('teaser_count', fetchedTeaserCount);
+    localStorage.setItem(TIME_KEY, nowIso);
+    localStorage.setItem(ROLE_KEY, userRole);
+    localStorage.setItem('announcement_data', fetchedAnnouncement);
+    localStorage.setItem('teaser_msg', fetchedTeaser);
+    localStorage.setItem('upgrade_msg', fetchedUpgradeMsg);
+    localStorage.setItem('teaser_count', fetchedTeaserCount);
     localStorage.setItem('curriculum_map', JSON.stringify(fetchedCurriculum));
     setLoading(false);
   };
@@ -618,12 +700,12 @@ export function AppProvider({ children }) {
 
         if (isGold) {
           const newGoldAnsRef = doc(db, "answers_gold", newQuestionRef.id);
-          batch.set(newGoldAnsRef, { answerText: answerText || "", mnemonic: mnemonic || "" });
+          batch.set(newGoldAnsRef, { answerText: answerText || "", mnemonic: mnemonic || "", updatedAt: nowIso });
         }
 
         await batch.commit();
 
-        setQuestions([{
+        const updatedList = [{
           id: newQuestionRef.id,
           ...qMeta,
           collection: 'questions',
@@ -632,11 +714,15 @@ export function AppProvider({ children }) {
           answerText: answerText || "",
           mnemonic: mnemonic || "",
           updatedAt: nowIso
-        }, ...questions]);
+        }, ...questions];
+        setQuestions(updatedList);
+        localStorage.setItem('questions_data', JSON.stringify(updatedList));
       } catch (e) { console.error('Error adding question:', e); }
     } else {
       const id = Date.now().toString();
-      setQuestions([{ id, ...newQ, accessLevel: finalAccess, hasGoldAnswer: isGold, updatedAt: nowIso }, ...questions]);
+      const updatedList = [{ id, ...newQ, accessLevel: finalAccess, hasGoldAnswer: isGold, updatedAt: nowIso }, ...questions];
+      setQuestions(updatedList);
+      localStorage.setItem('questions_data', JSON.stringify(updatedList));
     }
   };
 
@@ -667,14 +753,14 @@ export function AppProvider({ children }) {
 
         const goldAnsRef = doc(db, "answers_gold", id);
         if (isGold) {
-          batch.set(goldAnsRef, { answerText: answerText || "", mnemonic: mnemonic || "" }, { merge: true });
+          batch.set(goldAnsRef, { answerText: answerText || "", mnemonic: mnemonic || "", updatedAt: nowIso }, { merge: true });
         } else {
           batch.delete(goldAnsRef);
         }
 
         await batch.commit();
 
-        setQuestions(questions.map(q => q.id === id ? {
+        const updatedList = questions.map(q => q.id === id ? {
           ...q,
           ...qData,
           collection: 'questions',
@@ -683,10 +769,14 @@ export function AppProvider({ children }) {
           answerText: answerText || "",
           mnemonic: mnemonic || "",
           updatedAt: nowIso
-        } : q));
+        } : q);
+        setQuestions(updatedList);
+        localStorage.setItem('questions_data', JSON.stringify(updatedList));
       } catch (e) { console.error('Error updating question:', e); alert("Error updating question."); }
     } else {
-      setQuestions(questions.map(q => q.id === id ? { ...updatedQ, updatedAt: nowIso } : q));
+      const updatedList = questions.map(q => q.id === id ? { ...updatedQ, updatedAt: nowIso } : q);
+      setQuestions(updatedList);
+      localStorage.setItem('questions_data', JSON.stringify(updatedList));
     }
   };
 
@@ -702,10 +792,14 @@ export function AppProvider({ children }) {
         batch.delete(doc(db, "questions_gold", id));
         batch.delete(doc(db, "answers_std", id));
         await batch.commit();
-        setQuestions(questions.filter(q => q.id !== id));
+        const nextList = questions.filter(q => q.id !== id);
+        setQuestions(nextList);
+        localStorage.setItem('questions_data', JSON.stringify(nextList));
       } catch (e) { console.error('Error deleting question:', e); }
     } else {
-      setQuestions(questions.filter(q => q.id !== id));
+      const nextList = questions.filter(q => q.id !== id);
+      setQuestions(nextList);
+      localStorage.setItem('questions_data', JSON.stringify(nextList));
     }
   };
 
