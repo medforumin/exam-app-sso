@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    // Helper to check if user is admin (replace UID as needed)
+    function isAdmin() {
+      return isSignedIn() && request.auth.uid == "1j7sLsT9aERBoOocJQr49YpNcWE3";
+    }
+    // Helper to check if user is gold or admin
+    function isGoldOrAdmin() {
+      return isAdmin() || (
+        isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['gold', 'admin']
+      );
+    }
+    // QUESTIONS COLLECTION
+    match /questions/{questionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    // STANDARD ANSWERS COLLECTION
+    match /answers_std/{answerId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    // GOLD ANSWERS COLLECTION
+    match /answers_gold/{answerId} {
+      allow read: if isGoldOrAdmin();
+      allow write: if isAdmin();
+    }
+    // LEGACY QUESTIONS_GOLD COLLECTION (Backward Compatibility)
+    match /questions_gold/{questionId} {
+      allow read: if isGoldOrAdmin();
+      allow write: if isAdmin();
+    }
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow read, write: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+    }
+    // SETTINGS COLLECTION
+    match /settings/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    // NEW EXAMS COLLECTION
+    match /exams/{examId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    // NEW RESULTS COLLECTION
+    match /results/{resultId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    // Fallback generic rule (optional)
+    match /{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

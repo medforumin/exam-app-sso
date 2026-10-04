@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "960945553986",
+    "project_id": "dnbpediain",
+    "storage_bucket": "dnbpediain.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:960945553986:android:c208c4c11740f34bed23db",
+        "android_client_info": {
+          "package_name": "in.medforum.pediatricspyq"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "960945553986-96lbvp7460bmhg9plb2uc609n1gio6lv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "in.medforum.pediatricspyq",
+            "certificate_hash": "8b7c285e3488114b6e2a42aa814df122ddbae838"
+          }
+        },
+        {
+          "client_id": "960945553986-h2ouc59bcvecflreil6aejhl9bdu7rlq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "in.medforum.pediatricspyq",
+            "certificate_hash": "0285149480d75e8116e9a1f78174b4e024b7e191"
+          }
+        },
+        {
+          "client_id": "960945553986-vbkhus11dmjrrgpp2311b3h05pajms3t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "in.medforum.pediatricspyq",
+            "certificate_hash": "fbb7f05b41d09ca53c15bbaada489ca5078edec3"
+          }
+        },
+        {
+          "client_id": "960945553986-ab6954jb1t93b825vanqmjr0ibsdr122.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6q34PT7Q0NrZEzBTxAoLn_erhhxuIr34"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "960945553986-ab6954jb1t93b825vanqmjr0ibsdr122.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

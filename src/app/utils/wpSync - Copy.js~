@@ -1,0 +1,68 @@
+import { WP_SITE_URL, ENABLE_WP_REST_SYNC } from '../config';
+
+/**
+ * Backup Token-Based REST API User Sync Handler
+ * 
+ * Attempts to sync the current Firebase User to WordPress with the Subscriber role
+ * using a cryptographically verified Firebase ID Token.
+ * 
+ * Fail-Safe Strategy:
+ * - Triggered automatically inside handleUserSession on every login/session start.
+ * - Stores a local 'wp_synced_<uid>' flag upon successful verification to avoid redundant calls.
+ * - Kept INACTIVE by default (ENABLE_WP_REST_SYNC = false).
+ * 
+ * @param {object} user - Firebase Auth User instance
+ * @param {boolean} forceSync - Bypass cached sync status if true
+ */
+export async function syncUserToWordPressREST(user, forceSync = false) {
+  // 1. Guard check for feature flag & user presence
+  if (!ENABLE_WP_REST_SYNC || !user || !user.uid) {
+    return { skipped: true, reason: 'Feature disabled or invalid user' };
+  }
+
+  const cacheKey = `wp_synced_${user.uid}`;
+  const isAlreadySynced = localStorage.getItem(cacheKey) === 'true';
+
+  if (isAlreadySynced && !forceSync) {
+    return { skipped: true, reason: 'Already synced in local session' };
+  }
+
+  try {
+    // 2. Fetch fresh Firebase ID Token (JWT)
+    const idToken = await user.getIdToken(/* forceRefresh */ false);
+    if (!idToken) {
+      console.warn('[WPSync] Failed to obtain Firebase ID token.');
+      return { success: false, error: 'No ID Token' };
+    }
+
+    // 3. Post to WordPress REST API Custom Sync Endpoint
+    const endpoint = `${WP_SITE_URL}/wp-json/pyq/v1/sync-user`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        email: user.email || '',
+        displayName: user.displayName || '',
+        photoURL: user.photoURL || ''
+      })
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      console.log('[WPSync] WordPress subscriber account confirmed/created:', data);
+      localStorage.setItem(cacheKey, 'true');
+      return { success: true, data };
+    } else {
+      console.warn('[WPSync] WordPress sync response error:', data);
+      return { success: false, error: data.message || 'REST API Error' };
+    }
+  } catch (error) {
+    // Catch network drops, offline status, or endpoint failures silently
+    console.error('[WPSync] Failed to sync user to WordPress (Network/Server):', error);
+    return { success: false, error: error.message };
+  }
+}

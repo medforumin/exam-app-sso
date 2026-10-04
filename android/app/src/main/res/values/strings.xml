@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PediaQ</string>
+    <string name="title_activity_main">PediaQ</string>
+    <string name="package_name">in.medforum.pediatricspyq</string>
+    <string name="custom_url_scheme">in.medforum.pediatricspyq</string>
+    
+    <!-- Add these strings -->
+    <string name="no_internet_connection">No Internet Connection</string>
+    <string name="internet_required_message">Internet is required to load new questions and
+        answers.
+    </string>
+    <string name="go_to_main_screen">Enter App</string>
+
+    <!-- <string name="title_activity_main">pediatricspyq</string> -->
+</resources>

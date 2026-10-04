@@ -1,0 +1,22 @@
+# Robots.txt for PediaQ (Pediatrics PYQ) by MedForum.in
+User-agent: *
+Allow: /
+Disallow: /admin
+
+# AI Search & LLM Web Crawlers (Generative Engine Optimization)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://pyq.dnbpedia.in/sitemap.xml

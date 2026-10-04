@@ -1,0 +1,13 @@
+{
+  "appId": "in.medforum.pediatricspyq",
+  "appName": "DNBPediaPYQ",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": [
+        "google.com"
+      ]
+    }
+  }
+}
