@@ -87,6 +87,7 @@ function pyq_server_create_user_callback($request) {
     $email = sanitize_email($params['email'] ?? '');
     $name = sanitize_text_field($params['name'] ?? '');
     $username = sanitize_user($params['username'] ?? '');
+    $uid = sanitize_text_field($params['uid'] ?? '');
 
     if (empty($email) || !is_email($email)) {
         return new WP_Error('invalid_email', 'Invalid Email', array('status' => 400));
@@ -97,7 +98,10 @@ function pyq_server_create_user_callback($request) {
         if (!empty($name)) {
             pyq_update_user_names($existing_user->ID, $name);
         }
-        return array('success' => true, 'message' => 'User already exists, updated name', 'wp_user_id' => $existing_user->ID);
+        if (!empty($uid)) {
+            update_user_meta($existing_user->ID, 'firebase_uid', $uid);
+        }
+        return array('success' => true, 'message' => 'User already exists, updated name/uid', 'wp_user_id' => $existing_user->ID);
     }
 
     $user_id = wp_create_user($username, wp_generate_password(18, true), $email);
@@ -107,6 +111,9 @@ function pyq_server_create_user_callback($request) {
     $user->set_role('subscriber');
 
     pyq_update_user_names($user_id, $name);
+    if (!empty($uid)) {
+        update_user_meta($user_id, 'firebase_uid', $uid);
+    }
 
     return array('success' => true, 'wp_user_id' => $user_id);
 }
@@ -220,3 +227,102 @@ add_action('init', function () {
         }
     }
 });
+
+/**
+ * PMPro Hooks: Triggers on Online Checkouts (Knit Pay / Razorpay) & Manual Admin Level Changes
+ */
+add_action('pmpro_after_checkout', 'pyq_sync_gold_membership_to_firestore', 10, 2);
+add_action('pmpro_after_change_membership_level', 'pyq_handle_pmpro_level_change', 10, 3);
+
+function pyq_handle_pmpro_level_change($level_id, $user_id, $cancel_level) {
+    if (!empty($level_id) && !empty($user_id)) {
+        pyq_sync_gold_membership_to_firestore($user_id, null);
+    }
+}
+
+/**
+ * Core function to sync PMPro Paid Membership (GOLD) to Firebase Firestore
+ */
+function pyq_sync_gold_membership_to_firestore($user_id, $order = null) {
+    if (empty($user_id)) return;
+
+    $user = get_userdata($user_id);
+    if (!$user) return;
+
+    // Configurable Paid Level IDs (Level ID 1 is GOLD Membership)
+    $paid_level_ids = array(1);
+
+    // Get active PMPro level for user
+    $membership_level = function_exists('pmpro_getMembershipLevelForUser') ? pmpro_getMembershipLevelForUser($user_id) : null;
+    if (!$membership_level) return;
+
+    $level_id = (int)$membership_level->id;
+    $level_name = $membership_level->name;
+
+    // RULE 6: ABORT FOR FREE MEMBERSHIPS
+    // Ignore free memberships or non-target levels
+    $is_paid_id = in_array($level_id, $paid_level_ids, true);
+    $is_gold_name = (strpos(strtolower($level_name), 'gold') !== false);
+    $is_free_level = function_exists('pmpro_isLevelFree') ? pmpro_isLevelFree($membership_level) : false;
+
+    if ($is_free_level || (!$is_paid_id && !$is_gold_name)) {
+        error_log('[PYQ Gold Sync] Skipped free/non-GOLD level (ID: ' . $level_id . ', Name: ' . $level_name . ') for user ' . $user->user_email);
+        return;
+    }
+
+    // Determine plan duration in months
+    $duration_months = 3; // Default fallback
+    if (strpos(strtolower($level_name), '12 month') !== false || strpos(strtolower($level_name), '1 year') !== false) {
+        $duration_months = 12;
+    } else if (strpos(strtolower($level_name), '6 month') !== false) {
+        $duration_months = 6;
+    } else if (strpos(strtolower($level_name), '3 month') !== false) {
+        $duration_months = 3;
+    }
+
+    $start_date = date('Y-m-d H:i:s');
+    $expiry_date = date('Y-m-d H:i:s', strtotime("+$duration_months months"));
+
+    $firebase_uid = get_user_meta($user_id, 'firebase_uid', true);
+    $email = $user->user_email;
+    $name = $user->display_name;
+
+    $cloud_function_url = 'https://asia-south1-dnbpediain.cloudfunctions.net/syncGoldStatusFromWP';
+    $secret = 'ihQt_9taH_L9B4_gTys_kfT2_gAxn';
+
+    $payload = array(
+        'uid'         => $firebase_uid,
+        'email'       => $email,
+        'name'        => $name,
+        'role'        => 'Gold',
+        'goldStart'   => $start_date,
+        'goldExpiry'  => $expiry_date,
+        'planTitle'   => $level_name,
+        'levelId'     => $level_id,
+        'orderId'     => !empty($order) ? $order->code : '',
+        'amount'      => !empty($order) ? $order->total : 0,
+    );
+
+    $response = wp_remote_post($cloud_function_url, array(
+        'method'    => 'POST',
+        'headers'   => array(
+            'Content-Type' => 'application/json',
+            'X-PYQ-Secret' => $secret,
+        ),
+        'body'      => json_encode($payload),
+        'timeout'   => 15,
+    ));
+
+    if (is_wp_error($response)) {
+        error_log('[PYQ Gold Sync Error] Network failure: ' . $response->get_error_message());
+    } else {
+        $body_text = wp_remote_retrieve_body($response);
+        $res_data = json_decode($body_text, true);
+        if ($res_data && !empty($res_data['uid'])) {
+            // Save returned Firebase UID to WP user meta if it was newly auto-provisioned
+            update_user_meta($user_id, 'firebase_uid', $res_data['uid']);
+        }
+        error_log('[PYQ Gold Sync Success] Synced user ' . $email . ' to Firestore GOLD till ' . $expiry_date);
+    }
+}
+

@@ -1,5 +1,6 @@
 const { setGlobalOptions } = require("firebase-functions");
 const { onUserCreated } = require("firebase-functions/v2/identity");
+const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 
@@ -84,6 +85,7 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       body: JSON.stringify({
+        uid: user.uid,
         username: username,
         email: email,
         name: name,
@@ -110,3 +112,119 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
     console.error("[WPSync] Network error connecting to WordPress:", error);
   }
 });
+
+/**
+ * HTTP Cloud Function: Receives PMPro GOLD upgrade callbacks from WordPress.
+ * Handles existing app users as well as auto-provisioning direct WordPress GOLD buyers.
+ */
+exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, res) => {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
+
+  // Verify Secret Header
+  const secret = req.headers["x-pyq-secret"];
+  if (secret !== PYQ_SECRET) {
+    return res.status(403).json({ error: "Unauthorized request" });
+  }
+
+  const { uid, email, name, role, goldStart, goldExpiry, planTitle, orderId, amount, levelId } = req.body;
+
+  if (!email && !uid) {
+    return res.status(400).json({ error: "Missing required identifier (uid or email)" });
+  }
+
+  try {
+    let targetUid = uid;
+    let isAutoProvisioned = false;
+
+    // 1. Find Auth user by UID first if provided
+    if (targetUid) {
+      try {
+        await admin.auth().getUser(targetUid);
+      } catch {
+        targetUid = null;
+      }
+    }
+
+    // 2. Find Auth user by Email if UID not found or not provided
+    if (!targetUid && email) {
+      try {
+        const authUser = await admin.auth().getUserByEmail(email);
+        targetUid = authUser.uid;
+      } catch {
+        // User does not exist in Firebase Auth yet (Direct WP purchase)
+        targetUid = null;
+      }
+    }
+
+    // 3. Auto-provision Firebase Auth user if non-existent (Direct WP GOLD Buyer)
+    if (!targetUid && email) {
+      console.log(`[GoldSync] Auto-provisioning new Firebase Auth user for direct WP buyer ${email}`);
+      const newAuthUser = await admin.auth().createUser({
+        email: email,
+        displayName: name || email.split("@")[0],
+        emailVerified: true,
+      });
+      targetUid = newAuthUser.uid;
+      isAutoProvisioned = true;
+    }
+
+    if (!targetUid) {
+      return res.status(400).json({ error: "Unable to process or provision user account" });
+    }
+
+    const goldData = {
+      role: role || "Gold",
+      goldStart: goldStart || new Date().toISOString(),
+      goldExpiry: goldExpiry,
+      goldPlan: planTitle || "GOLD Subscription",
+      membershipUpdatedFrom: "WordPress PMPro",
+      lastPaymentInfo: {
+        orderId: orderId || "",
+        amount: amount || 0,
+        gateway: "Razorpay (PMPro)",
+        levelId: levelId || 1,
+        updatedAt: new Date().toISOString(),
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (isAutoProvisioned) {
+      goldData.email = email;
+      goldData.name = name || email.split("@")[0];
+      goldData.createdVia = "WordPress_Direct_Purchase";
+      goldData.createdAt = new Date().toISOString();
+    }
+
+    // Update named Firestore DB 'default'
+    try {
+      const dbNamed = getFirestore("default");
+      await dbNamed.doc(`users/${targetUid}`).set(goldData, { merge: true });
+      console.log(`[GoldSync] Updated named db 'default' users/${targetUid} with GOLD status (Expiry: ${goldExpiry})`);
+    } catch (fsErr) {
+      console.warn(`[GoldSync] Warning updating named db 'default':`, fsErr.message);
+    }
+
+    // Update standard default Firestore DB '(default)'
+    try {
+      const dbDefault = getFirestore();
+      await dbDefault.doc(`users/${targetUid}`).set(goldData, { merge: true });
+      console.log(`[GoldSync] Updated default db users/${targetUid} with GOLD status`);
+    } catch (fsErr2) {
+      console.warn(`[GoldSync] Warning updating default db:`, fsErr2.message);
+    }
+
+    return res.status(200).json({
+      success: true,
+      uid: targetUid,
+      isNewUser: isAutoProvisioned,
+      message: `User ${targetUid} upgraded to ${role || "Gold"} successfully`,
+      goldExpiry: goldExpiry,
+    });
+  } catch (err) {
+    console.error("[GoldSync] Error syncing GOLD status from WP:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
