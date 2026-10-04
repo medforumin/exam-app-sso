@@ -329,6 +329,27 @@ export function AppProvider({ children }) {
     }
   }, []);
 
+  /**
+   * Helper: Sanitizes question data based on userRole.
+   * Standard and guest users MUST NEVER have gold answers or mnemonics stored in local state or localStorage.
+   */
+  const sanitizeQuestionsForRole = (questionsList, role) => {
+    const isGoldOrAdmin = role === 'gold' || role === 'admin';
+    if (isGoldOrAdmin) return questionsList;
+
+    return questionsList.map(q => {
+      const isGoldQ = q.accessLevel === 'gold' || q.hasGoldAnswer || q.collection === 'questions_gold';
+      if (isGoldQ) {
+        return {
+          ...q,
+          answerText: "",
+          mnemonic: ""
+        };
+      }
+      return q;
+    });
+  };
+
   const fetchData = async (forceSync = false) => {
     setLoading(true);
 
@@ -350,8 +371,18 @@ export function AppProvider({ children }) {
     const lastSyncRole = localStorage.getItem(ROLE_KEY);
     const nowIso = new Date().toISOString();
 
-    // Check if full fetch is required (forceSync, no cached questions, role change, or missing lastSyncTime)
-    const isFullFetchRequired = forceSync || !cachedQuestions.length || !lastSyncTimeIso || lastSyncRole !== userRole;
+    const isRoleUpgraded = (lastSyncRole !== 'gold' && lastSyncRole !== 'admin') && (userRole === 'gold' || userRole === 'admin');
+    const isRoleDowngraded = (lastSyncRole === 'gold' || lastSyncRole === 'admin') && (userRole !== 'gold' && userRole !== 'admin');
+
+    // On Downgrade: Immediately purge all gold answers from local cache
+    if (isRoleDowngraded && cachedQuestions.length) {
+      console.log("[DataIsolation] Role downgraded to standard. Purging cached gold answers...");
+      cachedQuestions = sanitizeQuestionsForRole(cachedQuestions, userRole);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cachedQuestions));
+    }
+
+    // Full fetch required if: forced, empty cache, missing sync time, or user role UPGRADED to gold
+    const isFullFetchRequired = forceSync || !cachedQuestions.length || !lastSyncTimeIso || isRoleUpgraded || lastSyncRole !== userRole;
 
     let fetchedAnnouncement = '';
     let fetchedTeaser = '';
@@ -363,9 +394,10 @@ export function AppProvider({ children }) {
     let fetchedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
     let fetchedInfoPopupId = localStorage.getItem('info_popup_id') || '';
 
-    // Fast Path: Render cached questions immediately if full fetch is not required
+    // Fast Path: Render sanitized cached questions immediately if full fetch is not required
     if (!isFullFetchRequired) {
-      setQuestions(cachedQuestions);
+      const sanitizedCache = sanitizeQuestionsForRole(cachedQuestions, userRole);
+      setQuestions(sanitizedCache);
       setAnnouncement(localStorage.getItem('announcement_data') || '');
       setTeaser(localStorage.getItem('teaser_msg') || '');
       setUpgradeMsg(localStorage.getItem('upgrade_msg') || '🔒 High-yield answers & mnemonics are reserved for GOLD members. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW ⚡</a>');
@@ -395,7 +427,7 @@ export function AppProvider({ children }) {
 
         if (isFullFetchRequired) {
           // --- FULL FETCH ---
-          console.log("[DeltaSync] Performing Full Fetch from Firestore...");
+          console.log(`[DeltaSync] Performing Full Fetch for role: ${userRole}...`);
           const qSnapshot = await getDocs(collection(db, "questions"));
 
           const goldAnswers = {};
@@ -427,8 +459,9 @@ export function AppProvider({ children }) {
             };
           });
 
-          setQuestions(fullQuestions);
-          localStorage.setItem(CACHE_KEY, JSON.stringify(fullQuestions));
+          const sanitizedFull = sanitizeQuestionsForRole(fullQuestions, userRole);
+          setQuestions(sanitizedFull);
+          localStorage.setItem(CACHE_KEY, JSON.stringify(sanitizedFull));
         } else {
           // --- DELTA SYNC (INCREMENTAL) ---
           console.log(`[DeltaSync] Querying updates after ${lastSyncTimeIso}...`);
@@ -486,7 +519,7 @@ export function AppProvider({ children }) {
               }
             });
 
-            const updatedQuestions = Array.from(questionsMap.values());
+            const updatedQuestions = sanitizeQuestionsForRole(Array.from(questionsMap.values()), userRole);
             setQuestions(updatedQuestions);
             localStorage.setItem(CACHE_KEY, JSON.stringify(updatedQuestions));
           } else {
