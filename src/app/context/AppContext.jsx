@@ -67,6 +67,8 @@ export function AppProvider({ children }) {
   const [infoPopupTarget, setInfoPopupTarget] = useState(() => localStorage.getItem('info_popup_target') || 'all');
   const [infoPopupId, setInfoPopupId] = useState(() => localStorage.getItem('info_popup_id') || '');
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(() => localStorage.getItem('sso_enabled') !== 'false');
+  const [razorpayButtonId, setRazorpayButtonId] = useState(() => localStorage.getItem('razorpay_button_id') || '');
   const [curriculumMap, setCurriculumMap] = useState({});
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
@@ -393,6 +395,8 @@ export function AppProvider({ children }) {
     let fetchedShowInfoPopup = localStorage.getItem('info_popup_enabled') === 'true';
     let fetchedInfoPopupTarget = localStorage.getItem('info_popup_target') || 'all';
     let fetchedInfoPopupId = localStorage.getItem('info_popup_id') || '';
+    let fetchedSsoEnabled = localStorage.getItem('sso_enabled') !== 'false';
+    let fetchedRazorpayButtonId = localStorage.getItem('razorpay_button_id') || '';
 
     // Fast Path: Render sanitized cached questions immediately if full fetch is not required
     if (!isFullFetchRequired) {
@@ -540,11 +544,15 @@ export function AppProvider({ children }) {
           fetchedShowInfoPopup = infoPopupObj.enabled ?? false;
           fetchedInfoPopupTarget = infoPopupObj.target || 'all';
           fetchedInfoPopupId = infoPopupObj.id || '';
+          fetchedSsoEnabled = data.ssoEnabled ?? true;
+          fetchedRazorpayButtonId = data.razorpayButtonId || '';
 
           localStorage.setItem('info_popup_content', fetchedInfoPopupContent);
           localStorage.setItem('info_popup_enabled', fetchedShowInfoPopup ? 'true' : 'false');
           localStorage.setItem('info_popup_target', fetchedInfoPopupTarget);
           localStorage.setItem('info_popup_id', fetchedInfoPopupId);
+          localStorage.setItem('sso_enabled', fetchedSsoEnabled ? 'true' : 'false');
+          localStorage.setItem('razorpay_button_id', fetchedRazorpayButtonId);
         }
       } catch (error) {
         console.error("fetchData error:", error);
@@ -569,6 +577,8 @@ export function AppProvider({ children }) {
     setShowInfoPopup(fetchedShowInfoPopup);
     setInfoPopupTarget(fetchedInfoPopupTarget);
     setInfoPopupId(fetchedInfoPopupId);
+    setSsoEnabled(fetchedSsoEnabled);
+    setRazorpayButtonId(fetchedRazorpayButtonId);
 
     checkAndTriggerInfoPopup(fetchedInfoPopupContent, fetchedShowInfoPopup, fetchedInfoPopupTarget, fetchedInfoPopupId);
 
@@ -836,10 +846,19 @@ export function AppProvider({ children }) {
     }
   };
 
-  const saveCurriculumMap = (newMap) => {
-    setCurriculumMap(newMap);
-    if (ENABLE_FIREBASE && db) setDoc(doc(db, "settings", "global"), { curriculumMap: newMap }, { merge: true });
-    else localStorage.setItem('curriculum_map', JSON.stringify(newMap));
+  const saveCurriculumMap = async (newMap) => {
+    try {
+      setCurriculumMap(newMap);
+      if (ENABLE_FIREBASE && db) {
+        await setDoc(doc(db, "settings", "global"), { curriculumMap: newMap }, { merge: true });
+      } else {
+        localStorage.setItem('curriculum_map', JSON.stringify(newMap));
+      }
+      alert("Curriculum Map saved successfully!");
+    } catch (error) {
+      console.error("Error saving curriculum map:", error);
+      alert("Failed to save Curriculum Map: " + (error.message || "Unknown error"));
+    }
   };
   const saveAnnouncement = (t) => {
     setAnnouncement(t);
@@ -924,6 +943,8 @@ export function AppProvider({ children }) {
           const fetchedShowInfoPopup = infoPopupObj.enabled ?? false;
           const fetchedInfoPopupTarget = infoPopupObj.target || 'all';
           const fetchedInfoPopupId = infoPopupObj.id || '';
+          const fetchedSsoEnabled = data.ssoEnabled ?? true;
+          const fetchedRazorpayButtonId = data.razorpayButtonId || '';
 
           setAnnouncement(fetchedAnnouncement);
           setTeaser(fetchedTeaser);
@@ -934,11 +955,15 @@ export function AppProvider({ children }) {
           setShowInfoPopup(fetchedShowInfoPopup);
           setInfoPopupTarget(fetchedInfoPopupTarget);
           setInfoPopupId(fetchedInfoPopupId);
+          setSsoEnabled(fetchedSsoEnabled);
+          setRazorpayButtonId(fetchedRazorpayButtonId);
 
           localStorage.setItem('info_popup_content', fetchedInfoPopupContent);
           localStorage.setItem('info_popup_enabled', fetchedShowInfoPopup ? 'true' : 'false');
           localStorage.setItem('info_popup_target', fetchedInfoPopupTarget);
           localStorage.setItem('info_popup_id', fetchedInfoPopupId);
+          localStorage.setItem('sso_enabled', fetchedSsoEnabled ? 'true' : 'false');
+          localStorage.setItem('razorpay_button_id', fetchedRazorpayButtonId);
 
           checkAndTriggerInfoPopup(fetchedInfoPopupContent, fetchedShowInfoPopup, fetchedInfoPopupTarget, fetchedInfoPopupId);
         }
@@ -977,6 +1002,25 @@ export function AppProvider({ children }) {
     const closeCount = parseInt(localStorage.getItem('info_popup_close_count') || '0', 10);
     localStorage.setItem('info_popup_close_count', (closeCount + 1).toString());
     localStorage.setItem('info_popup_last_shown', Date.now().toString());
+  };
+
+  const saveRazorpayButtonId = (id) => {
+    const cleanId = (id || '').trim();
+    setRazorpayButtonId(cleanId);
+    localStorage.setItem('razorpay_button_id', cleanId);
+    if (ENABLE_FIREBASE && db) {
+      setDoc(doc(db, "settings", "global"), { razorpayButtonId: cleanId }, { merge: true });
+    }
+    alert("Razorpay Payment Button ID saved successfully!");
+  };
+
+  const saveSSOSettings = (enabled) => {
+    setSsoEnabled(enabled);
+    localStorage.setItem('sso_enabled', enabled ? 'true' : 'false');
+    if (ENABLE_FIREBASE && db) {
+      setDoc(doc(db, "settings", "global"), { ssoEnabled: enabled }, { merge: true });
+    }
+    alert(`WordPress Single Sign-On (SSO) is now ${enabled ? 'ENABLED' : 'DISABLED'}!`);
   };
 
   const saveInfoPopupSettings = (content, enabled, target = 'all') => {
@@ -1034,6 +1078,7 @@ export function AppProvider({ children }) {
     handleToggleRead, handleManualSync, addQuestion, updateQuestion, deleteQuestion, saveCurriculumMap, saveAnnouncement, saveTeaserCount, saveTeaserMessage,
     filters, setFilters, showMarkedOnly, setShowMarkedOnly, isProfileLoaded,
     infoPopupContent, showInfoPopup, infoPopupTarget, setInfoPopupTarget, isInfoModalOpen, setIsInfoModalOpen, closeInfoModal, saveInfoPopupSettings,
+    ssoEnabled, setSsoEnabled, saveSSOSettings, razorpayButtonId, setRazorpayButtonId, saveRazorpayButtonId,
     selectedTopicFilter, setSelectedTopicFilter, navigateToTopicStudy,
     zoomImage, openImageZoom, closeImageZoom
   };

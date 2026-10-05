@@ -5,6 +5,7 @@ import {
   BarChart2, CheckCircle2, Award, Zap, Smartphone, Download
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { SafeHtmlContent } from '../components/SafeHtmlContent';
 import { isNativePlatform } from '../platform/native';
 
 export function WelcomeScreen() {
@@ -209,9 +210,9 @@ export function WelcomeScreen() {
                           Exam Update
                         </span>
                       </div>
-                      <div
+                      <SafeHtmlContent
                         className="text-xs font-semibold leading-relaxed text-white pt-1 prose prose-invert prose-xs max-w-none [&_a]:underline [&_a]:font-bold [&_a]:text-white"
-                        dangerouslySetInnerHTML={{ __html: announcement }}
+                        html={announcement}
                       />
                     </div>
                   </div>

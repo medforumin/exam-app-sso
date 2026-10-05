@@ -26,6 +26,8 @@ import { ProfileScreen } from './app/screens/ProfileScreen';
 import { registerBackButtonHandler, initNativePushNotifications } from './app/platform/native';
 import { openWordPressWithAutoLogin } from './app/utils/wpSync';
 
+import { SafeHtmlContent } from './app/components/SafeHtmlContent';
+
 function AppLayout() {
   const {
     currentScreen, viewMode, setViewMode, userRole,
@@ -114,7 +116,7 @@ function AppLayout() {
                   </div>
                   <div className="flex-1">
                     <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-900 dark:text-blue-200 mb-1">Announcement</h4>
-                    <div className="prose prose-sm prose-blue dark:prose-invert max-w-none text-blue-800 dark:text-blue-200 text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: announcement }} />
+                    <SafeHtmlContent className="prose prose-sm prose-blue dark:prose-invert max-w-none text-blue-800 dark:text-blue-200 text-xs leading-relaxed" html={announcement} />
                   </div>
                 </div>
               )}

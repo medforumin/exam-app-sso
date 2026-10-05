@@ -1,6 +1,7 @@
 import React from 'react';
 import { Info, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 export function InfoModal() {
   const { isInfoModalOpen, closeInfoModal, infoPopupContent } = useAppContext();
@@ -37,9 +38,9 @@ export function InfoModal() {
 
         {/* HTML Content Body */}
         <div className="flex-1 overflow-y-auto mb-5 pr-1 text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-          <div
+          <SafeHtmlContent
             className="prose prose-sm prose-teal dark:prose-invert max-w-none text-sm space-y-2"
-            dangerouslySetInnerHTML={{ __html: infoPopupContent }}
+            html={infoPopupContent}
           />
         </div>
 

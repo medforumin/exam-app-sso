@@ -3,8 +3,9 @@ import {
   Crown, Save, Plus, X, Search, ChevronLeft, ChevronRight, Megaphone, Sparkles,
   Layout, BookOpen, ChevronUp, ChevronDown, Trash2, Bold, Italic, Underline, Heading2,
   Heading3, Heading4, List, ListOrdered, Image as ImageIcon, Eraser, Code, Info, Eye,
-  Globe, Laptop, Smartphone, Table, Type, Highlighter
+  Globe, Laptop, Smartphone, Table, Type, Highlighter, ShieldCheck, CreditCard
 } from 'lucide-react';
+import { SafeHtmlContent } from './SafeHtmlContent';
 import { useAppContext } from '../context/AppContext';
 import { EXAM_TYPES, SESSIONS, PAPERS, YEARS } from '../config';
 import { QuestionCard } from './QuestionCard';
@@ -282,7 +283,8 @@ export function AdminPanel() {
     questions, uniqueTopics, addQuestion, updateQuestion, deleteQuestion,
     announcement, saveAnnouncement, teaserQuestionCount, saveTeaserCount,
     teaser, saveTeaserMessage, upgradeMsg, saveUpgradeMessage, curriculumMap, saveCurriculumMap, userRole,
-    infoPopupContent, showInfoPopup, infoPopupTarget, saveInfoPopupSettings, setIsInfoModalOpen
+    infoPopupContent, showInfoPopup, infoPopupTarget, saveInfoPopupSettings, setIsInfoModalOpen,
+    ssoEnabled, saveSSOSettings, razorpayButtonId, saveRazorpayButtonId
   } = useAppContext();
 
 
@@ -296,6 +298,8 @@ export function AdminPanel() {
   const [infoPopupText, setInfoPopupText] = useState(infoPopupContent || '');
   const [infoPopupEnabled, setInfoPopupEnabled] = useState(showInfoPopup ?? false);
   const [targetPlatform, setTargetPlatform] = useState(infoPopupTarget || 'all');
+  const [ssoToggleState, setSsoToggleState] = useState(ssoEnabled ?? true);
+  const [rzpButtonInput, setRzpButtonInput] = useState(razorpayButtonId || '');
   const [editingId, setEditingId] = useState(null);
   const [newAppearance, setNewAppearance] = useState({ exam: 'DNB', year: 2025, session: 'June', paper: '1' });
   const [adminPage, setAdminPage] = useState(1);
@@ -317,6 +321,8 @@ export function AdminPanel() {
   useEffect(() => setInfoPopupText(infoPopupContent || ''), [infoPopupContent]);
   useEffect(() => setInfoPopupEnabled(showInfoPopup ?? false), [showInfoPopup]);
   useEffect(() => setTargetPlatform(infoPopupTarget || 'all'), [infoPopupTarget]);
+  useEffect(() => setSsoToggleState(ssoEnabled ?? true), [ssoEnabled]);
+  useEffect(() => setRzpButtonInput(razorpayButtonId || ''), [razorpayButtonId]);
   useEffect(() => {
     if (curriculumMap) setLocalCurriculum(curriculumMap);
   }, [curriculumMap]);
@@ -658,7 +664,7 @@ export function AdminPanel() {
           {showAnnouncementPreview && (
             <div className="mt-4 bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 p-4 rounded-lg">
               <h4 className="text-sm font-bold text-blue-800 dark:text-blue-200 mb-2">Announcement Preview</h4>
-              <div className="text-sm text-gray-800 dark:text-gray-200 prose max-w-none" dangerouslySetInnerHTML={{ __html: announcementText || '<em>No announcement</em>' }} />
+              <SafeHtmlContent className="text-sm text-gray-800 dark:text-gray-200 prose max-w-none" html={announcementText || '<em>No announcement</em>'} />
             </div>
           )}
 
@@ -805,6 +811,83 @@ export function AdminPanel() {
               </button>
             </div>
           </div>
+
+          {/* WordPress SSO Single Sign-On Enable / Disable Compact Card */}
+          <div className="bg-white dark:bg-gray-800 border border-indigo-100 dark:border-indigo-900/30 p-3.5 rounded-xl shadow-sm mt-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`p-2 rounded-lg shrink-0 ${ssoToggleState ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}`}>
+                <ShieldCheck size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-gray-900 dark:text-white truncate">WordPress SSO Auto-Login</h3>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${ssoToggleState ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}`}>
+                    {ssoToggleState ? 'Active' : 'Direct Links Only'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">Auto-logs users into dnbpedia.in via 1-time magic tokens</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 ml-auto sm:ml-0">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={ssoToggleState}
+                  onChange={e => setSsoToggleState(e.target.checked)}
+                />
+                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+              </label>
+              <button
+                onClick={() => saveSSOSettings(ssoToggleState)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+              >
+                <Save size={14} /> Save
+              </button>
+            </div>
+          </div>
+
+          {/* Razorpay Payment Button Integration Card */}
+          <div className="bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 p-5 rounded-2xl shadow-sm mt-4">
+            <h3 className="font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
+              <CreditCard size={18} className="text-blue-600 dark:text-blue-400" />
+              Razorpay Payment Button Integration
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
+              Set default Razorpay Payment Button ID (e.g. <code>pl_P1a2B3c4D5e6F7</code>). Use shortcode <code>[razorpay_button]</code> or <code>[razorpay_button id="pl_XXXXXX"]</code> in any HTML content (Announcements, Upgrade Messages, Teasers, Popups, Solutions).
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
+              <input
+                type="text"
+                className="flex-1 p-3 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-mono dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                placeholder="e.g. pl_P1a2B3c4D5e6F7"
+                value={rzpButtonInput}
+                onChange={e => setRzpButtonInput(e.target.value)}
+              />
+              <button
+                onClick={() => saveRazorpayButtonId(rzpButtonInput)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 shrink-0"
+              >
+                <Save size={16} /> Save Button ID
+              </button>
+            </div>
+
+            <div className="bg-blue-50/70 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/60 p-3 rounded-xl text-xs space-y-2">
+              <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <Code size={14} /> Shortcode Usage Cheatsheet:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
+                  <code>[razorpay_button]</code>
+                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds default button ID set above</div>
+                </div>
+                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
+                  <code>[razorpay_button id="pl_ABC123"]</code>
+                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds specific custom Razorpay button</div>
+                </div>
+              </div>
+            </div>
+          </div>
           {showTeaserPreview && (
             <div className="mt-4">
               <h4 className="text-sm font-bold text-amber-800 mb-2">Teaser Preview</h4>
@@ -816,7 +899,7 @@ export function AdminPanel() {
                     </div>
                     <div className="flex-1">
                       <h4 className="font-bold text-amber-900 dark:text-amber-100 text-sm mb-1">Premium Content Available</h4>
-                      <div className="prose prose-sm prose-amber dark:prose-invert max-w-none text-amber-800 dark:text-amber-200 text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: teaserText || '<em>No teaser</em>' }} />
+                      <SafeHtmlContent className="prose prose-sm prose-amber dark:prose-invert max-w-none text-amber-800 dark:text-amber-200 text-xs leading-relaxed" html={teaserText || '<em>No teaser</em>'} />
                     </div>
                   </div>
                 </div>

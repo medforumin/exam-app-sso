@@ -4,6 +4,7 @@ import {
   CheckCircle2, Clock, Flag, Pencil, Trash2
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 export function QuestionCard({ data, isAdmin, onDelete, onEdit, isExpanded, onToggle, isMarked, onToggleMark, isRead, onToggleRead, userRole, teaser, upgradeMsg }) {
   const { openImageZoom } = useAppContext();
@@ -94,7 +95,7 @@ export function QuestionCard({ data, isAdmin, onDelete, onEdit, isExpanded, onTo
                   <div className="bg-amber-100 dark:bg-amber-800 p-2 rounded-full text-amber-600 dark:text-amber-200"><Crown size={20} /></div>
                   <div className="flex-1">
                     <h4 className="font-bold text-amber-900 dark:text-amber-100 text-sm mb-1">Premium Content Locked</h4>
-                    <div className="prose prose-sm prose-amber dark:prose-invert max-w-none text-amber-800 dark:text-amber-200 text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: upgradeMsg || '🔒 High-yield answers are available to GOLD members only. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW⚡</a>' }} />
+                    <SafeHtmlContent className="prose prose-sm prose-amber dark:prose-invert max-w-none text-amber-800 dark:text-amber-200 text-xs leading-relaxed" html={upgradeMsg || '🔒 High-yield answers are available to GOLD members only. <a href="https://dnbpedia.in/pyq/memberships" target="_blank" rel="noopener noreferrer" class="font-extrabold underline hover:opacity-80">UPGRADE NOW⚡</a>'} />
                   </div>
                 </div>
               </div>
@@ -104,13 +105,13 @@ export function QuestionCard({ data, isAdmin, onDelete, onEdit, isExpanded, onTo
             (userRole === 'admin' && (!data.answerText || data.answerText.trim() === '')) ? (
               <div className="mb-2 text-sm italic text-gray-500">No saved gold answer yet — please edit to add the answer.</div>
             ) : (
-              <div className="prose prose-sm prose-teal dark:prose-invert max-w-none text-gray-600 dark:text-gray-300 mb-4" dangerouslySetInnerHTML={{ __html: data.answerText }} />
+              <SafeHtmlContent className="prose prose-sm prose-teal dark:prose-invert max-w-none text-gray-600 dark:text-gray-300 mb-4" html={data.answerText} />
             )
           )}
           {data.mnemonic && data.mnemonic.trim() !== '' && (
             <div className="mb-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 shadow-sm">
               <h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-300 mb-2 flex items-center gap-1"><Sparkles size={14} /> High Yield / Mnemonic</h4>
-              <div className="prose prose-sm prose-indigo dark:prose-invert max-w-none text-indigo-800 dark:text-indigo-200 text-sm" dangerouslySetInnerHTML={{ __html: data.mnemonic }} />
+              <SafeHtmlContent className="prose prose-sm prose-indigo dark:prose-invert max-w-none text-indigo-800 dark:text-indigo-200 text-sm" html={data.mnemonic} />
             </div>
           )}
           <div className="mb-3">

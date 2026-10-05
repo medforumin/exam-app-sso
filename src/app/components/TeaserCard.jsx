@@ -1,5 +1,6 @@
 import React from 'react';
 import { Sparkles } from 'lucide-react';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 export function TeaserCard({ message }) {
   return (
@@ -11,9 +12,9 @@ export function TeaserCard({ message }) {
           </div>
         </div>
         <div className="flex-1">
-          <div 
+          <SafeHtmlContent 
             className="text-xs sm:text-sm text-amber-950 dark:text-amber-100 leading-relaxed font-medium" 
-            dangerouslySetInnerHTML={{ __html: message }} 
+            html={message} 
           />
         </div>
       </div>

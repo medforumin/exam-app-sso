@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, BookOpen, Layout, PieChart, FileText, HelpCircle } from 'lucide-react';
+import { Home, BookOpen, Layout, PieChart, User, HelpCircle } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 
 export function NavigationFooter() {
@@ -10,7 +10,7 @@ export function NavigationFooter() {
     { id: 'app', label: 'Questions', icon: BookOpen },
     { id: 'chapters', label: 'Chapters', icon: Layout },
     { id: 'analytics', label: 'Analytics', icon: PieChart },
-    { id: 'terms', label: 'Terms', icon: FileText },
+    { id: 'profile', label: 'Profile', icon: User },
     { id: 'support', label: 'Support', icon: HelpCircle },
   ];
 

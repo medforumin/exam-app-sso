@@ -113,6 +113,13 @@ export async function openWordPressWithAutoLogin(targetPath = '/') {
 
   const fullFallbackUrl = `${WP_SITE_URL}${cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath}`;
 
+  const isSSOEnabled = localStorage.getItem('sso_enabled') !== 'false';
+  if (!isSSOEnabled) {
+    console.log('[WP SSO] SSO is currently disabled via Admin Settings. Opening direct URL:', fullFallbackUrl);
+    launchExternalUrl(fullFallbackUrl);
+    return;
+  }
+
   console.log('[WP SSO] currentUser object:', currentUser ? currentUser.email : 'No user logged in (Guest)');
 
   if (!currentUser) {
