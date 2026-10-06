@@ -54,6 +54,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+    // MEMBERSHIP REQUESTS COLLECTION (UPI Payment Verification)
+    match /membership_requests/{requestId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
     // Fallback generic rule (optional)
     match /{document=**} {
       allow read: if isSignedIn();

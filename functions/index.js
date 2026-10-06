@@ -174,19 +174,88 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
       return res.status(400).json({ error: "Unable to process or provision user account" });
     }
 
+    const nowIso = new Date().toISOString();
+
+    // If role requested is 'standard' (e.g. cancelled or reverted to free in PMPro)
+    if (role === "standard") {
+      const downgradeData = {
+        role: "standard",
+        goldLastUpdatedAt: nowIso,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      try {
+        const dbNamed = getFirestore("default");
+        await dbNamed.doc(`users/${targetUid}`).set(downgradeData, { merge: true });
+      } catch (fsErr) {
+        console.warn(`[GoldSync] Error updating named db for downgrade:`, fsErr.message);
+      }
+
+      try {
+        const dbDefault = getFirestore();
+        await dbDefault.doc(`users/${targetUid}`).set(downgradeData, { merge: true });
+      } catch (fsErr2) {
+        console.warn(`[GoldSync] Error updating default db for downgrade:`, fsErr2.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        uid: targetUid,
+        role: "standard",
+        message: `User ${targetUid} role set to standard`,
+      });
+    }
+
+    // Role requested is 'gold' (Upgrade / Renewal flow)
+    const startIso = goldStartAt || goldStart ? new Date(goldStartAt || goldStart).toISOString() : nowIso;
+
+    const parsedMonths = Number(durationMonths) || (
+      levelId === 3 ? 12 :
+      levelId === 2 ? 6 :
+      planTitle && planTitle.includes("12") ? 12 :
+      planTitle && planTitle.includes("6") ? 6 :
+      planTitle && planTitle.includes("1") ? 1 : 3
+    );
+
+    const chargeAmount = Number(amount || 0);
+
+    let expiryIso = goldExpiry ? new Date(goldExpiry).toISOString() : null;
+    if (!expiryIso || isNaN(new Date(expiryIso).getTime())) {
+      const expDate = new Date(startIso);
+      expDate.setMonth(expDate.getMonth() + parsedMonths);
+      expiryIso = expDate.toISOString();
+    }
+
+    const paymentRecord = {
+      id: `payment-${Date.now()}-${orderId || Math.random().toString(36).substring(2, 9)}`,
+      userId: targetUid,
+      amount: chargeAmount,
+      months: parsedMonths,
+      chargedAt: nowIso,
+      transactionId: orderId ? `PMPro_${orderId}` : "PMPro_Checkout",
+      note: planTitle || `WordPress PMPro Level ${levelId || 1}`,
+    };
+
+    let existingHistory = [];
+    try {
+      const dbNamed = getFirestore("default");
+      const userSnap = await dbNamed.doc(`users/${targetUid}`).get();
+      if (userSnap.exists && Array.isArray(userSnap.data().goldRevenueHistory)) {
+        existingHistory = userSnap.data().goldRevenueHistory;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Universal Canonical Membership Schema (No redundant duplicate fields)
     const goldData = {
-      role: role || "gold",
-      goldStart: goldStart || new Date().toISOString(),
-      goldExpiry: goldExpiry,
-      goldPlan: planTitle || "GOLD Subscription",
-      membershipUpdatedFrom: "WordPress PMPro",
-      lastPaymentInfo: {
-        orderId: orderId || "",
-        amount: amount || 0,
-        gateway: "Razorpay (PMPro)",
-        levelId: levelId || 1,
-        updatedAt: new Date().toISOString(),
-      },
+      role: "gold",
+      goldStartAt: startIso,
+      goldExpiry: expiryIso,
+      goldPlanMonths: parsedMonths,
+      goldLastUpdatedAt: nowIso,
+      lastGoldCharge: chargeAmount,
+      goldRevenueHistory: [...existingHistory, paymentRecord],
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 

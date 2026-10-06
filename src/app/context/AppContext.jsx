@@ -13,7 +13,7 @@ import {
   INITIAL_DATA_GOLD, getLocalDeviceId
 } from "../config";
 
-import { customConfirm, isNativePlatform, exitNativeApp, registerAppStateHandler } from '../platform/native';
+import { customConfirm, showToast, isNativePlatform, exitNativeApp, registerAppStateHandler } from '../platform/native';
 import { syncUserToWordPressREST } from '../utils/wpSync';
 
 let db = null;
@@ -69,6 +69,18 @@ export function AppProvider({ children }) {
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [ssoEnabled, setSsoEnabled] = useState(() => localStorage.getItem('sso_enabled') !== 'false');
   const [razorpayButtonId, setRazorpayButtonId] = useState(() => localStorage.getItem('razorpay_button_id') || '');
+  const [enableInAppUpiUpgrade, setEnableInAppUpiUpgrade] = useState(() => localStorage.getItem('enable_in_app_upi_upgrade') !== 'false');
+  const [upiId, setUpiId] = useState(() => localStorage.getItem('upi_id') || 'medforum@upi');
+  const [payeeName, setPayeeName] = useState(() => localStorage.getItem('payee_name') || 'MedForum Pediatrics');
+  const [enableRazorpayButton, setEnableRazorpayButton] = useState(() => localStorage.getItem('enable_razorpay_button') === 'true');
+  const [planRates, setPlanRates] = useState(() => {
+    try {
+      const saved = localStorage.getItem('plan_rates');
+      return saved ? JSON.parse(saved) : { plan_3m: 2999, plan_6m: 4999, plan_12m: 7999 };
+    } catch {
+      return { plan_3m: 2999, plan_6m: 4999, plan_12m: 7999 };
+    }
+  });
   const [curriculumMap, setCurriculumMap] = useState({});
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
@@ -553,6 +565,41 @@ export function AppProvider({ children }) {
           localStorage.setItem('info_popup_id', fetchedInfoPopupId);
           localStorage.setItem('sso_enabled', fetchedSsoEnabled ? 'true' : 'false');
           localStorage.setItem('razorpay_button_id', fetchedRazorpayButtonId);
+        }
+
+        try {
+          const memConfigSnap = await getDoc(doc(db, "settings", "membership_config"));
+          if (memConfigSnap.exists()) {
+            const memData = memConfigSnap.data();
+            if (memData.enableInAppUpiUpgrade !== undefined) {
+              setEnableInAppUpiUpgrade(memData.enableInAppUpiUpgrade);
+              localStorage.setItem('enable_in_app_upi_upgrade', memData.enableInAppUpiUpgrade ? 'true' : 'false');
+            }
+            if (memData.upiId) {
+              setUpiId(memData.upiId);
+              localStorage.setItem('upi_id', memData.upiId);
+            }
+            if (memData.payeeName) {
+              setPayeeName(memData.payeeName);
+              localStorage.setItem('payee_name', memData.payeeName);
+            }
+            if (memData.enableRazorpayButton !== undefined) {
+              setEnableRazorpayButton(memData.enableRazorpayButton);
+              localStorage.setItem('enable_razorpay_button', memData.enableRazorpayButton ? 'true' : 'false');
+            }
+            if (memData.razorpayButtonId !== undefined) {
+              setRazorpayButtonId(memData.razorpayButtonId);
+              localStorage.setItem('razorpay_button_id', memData.razorpayButtonId);
+            }
+            if (memData.plans && Array.isArray(memData.plans)) {
+              const rates = {};
+              memData.plans.forEach(p => { rates[p.id] = p.price; });
+              setPlanRates(rates);
+              localStorage.setItem('plan_rates', JSON.stringify(rates));
+            }
+          }
+        } catch (memErr) {
+          console.warn("[AppContext] Failed to load membership_config:", memErr);
         }
       } catch (error) {
         console.error("fetchData error:", error);
@@ -1070,6 +1117,65 @@ export function AppProvider({ children }) {
     navigateTo('study');
   }, [navigateTo]);
 
+  const savePaymentSettings = async (settingsObj) => {
+    const {
+      enableInAppUpiUpgrade: newEnableUpi,
+      upiId: newUpiId,
+      payeeName: newPayeeName,
+      enableRazorpayButton: newEnableRzp,
+      razorpayButtonId: newRzpId,
+      planRates: newRates
+    } = settingsObj;
+
+    if (newEnableUpi !== undefined) {
+      setEnableInAppUpiUpgrade(newEnableUpi);
+      localStorage.setItem('enable_in_app_upi_upgrade', newEnableUpi ? 'true' : 'false');
+    }
+    if (newUpiId !== undefined) {
+      setUpiId(newUpiId);
+      localStorage.setItem('upi_id', newUpiId);
+    }
+    if (newPayeeName !== undefined) {
+      setPayeeName(newPayeeName);
+      localStorage.setItem('payee_name', newPayeeName);
+    }
+    if (newEnableRzp !== undefined) {
+      setEnableRazorpayButton(newEnableRzp);
+      localStorage.setItem('enable_razorpay_button', newEnableRzp ? 'true' : 'false');
+    }
+    if (newRzpId !== undefined) {
+      setRazorpayButtonId(newRzpId);
+      localStorage.setItem('razorpay_button_id', newRzpId);
+    }
+    if (newRates) {
+      setPlanRates(newRates);
+      localStorage.setItem('plan_rates', JSON.stringify(newRates));
+    }
+
+    if (ENABLE_FIREBASE && db) {
+      try {
+        const configData = {
+          enableInAppUpiUpgrade: newEnableUpi ?? true,
+          upiId: newUpiId || 'medforum@upi',
+          payeeName: newPayeeName || 'MedForum Pediatrics',
+          enableRazorpayButton: newEnableRzp ?? false,
+          razorpayButtonId: newRzpId || '',
+          plans: [
+            { id: 'plan_3m', title: '3 Months Gold Membership', durationMonths: 3, price: Number(newRates?.plan_3m || 2999), badge: 'Popular Choice' },
+            { id: 'plan_6m', title: '6 Months Gold Membership', durationMonths: 6, price: Number(newRates?.plan_6m || 4999), badge: 'Best Value' },
+            { id: 'plan_12m', title: '12 Months Gold Membership', durationMonths: 12, price: Number(newRates?.plan_12m || 7999), badge: 'Maximum Savings' }
+          ],
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(doc(db, 'settings', 'membership_config'), configData, { merge: true });
+        await setDoc(doc(db, 'settings', 'global'), { razorpayButtonId: newRzpId || '' }, { merge: true });
+      } catch (err) {
+        console.error('Error saving payment settings:', err);
+      }
+    }
+    showToast('Payment settings saved successfully!');
+  };
+
   const ctx = {
     currentScreen, setCurrentScreen, navigateTo, goBack, questions, announcement, teaser, teaserQuestionCount, curriculumMap, loading, darkMode, setDarkMode,
     upgradeMsg, saveUpgradeMessage,
@@ -1079,6 +1185,7 @@ export function AppProvider({ children }) {
     filters, setFilters, showMarkedOnly, setShowMarkedOnly, isProfileLoaded,
     infoPopupContent, showInfoPopup, infoPopupTarget, setInfoPopupTarget, isInfoModalOpen, setIsInfoModalOpen, closeInfoModal, saveInfoPopupSettings,
     ssoEnabled, setSsoEnabled, saveSSOSettings, razorpayButtonId, setRazorpayButtonId, saveRazorpayButtonId,
+    enableInAppUpiUpgrade, setEnableInAppUpiUpgrade, upiId, setUpiId, payeeName, setPayeeName, enableRazorpayButton, setEnableRazorpayButton, planRates, setPlanRates, savePaymentSettings,
     selectedTopicFilter, setSelectedTopicFilter, navigateToTopicStudy,
     zoomImage, openImageZoom, closeImageZoom
   };

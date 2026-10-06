@@ -22,6 +22,7 @@ import { AnalyticsScreen } from './app/screens/AnalyticsScreen';
 import { ChapterStudyScreen } from './app/screens/ChapterStudyScreen';
 import { StudentStudyScreen } from './app/screens/StudentStudyScreen';
 import { ProfileScreen } from './app/screens/ProfileScreen';
+import { UpgradeGoldScreen } from './app/screens/UpgradeGoldScreen';
 
 import { registerBackButtonHandler, initNativePushNotifications } from './app/platform/native';
 import { openWordPressWithAutoLogin } from './app/utils/wpSync';
@@ -45,6 +46,7 @@ function AppLayout() {
       analytics: 'Exam Readiness Analytics | PediaQ (Pediatrics PYQ)',
       chapters: 'Chapter Study Mode | PediaQ (Pediatrics PYQ)',
       profile: 'User Profile & Settings | PediaQ',
+      upgrade: 'Upgrade to GOLD Membership & UPI Payment | PediaQ',
       study: 'All Questions Bank | DNB & DCH PediaQ (Pediatrics PYQ)'
     };
     document.title = titleMap[currentScreen] || 'PediaQ (Pediatrics PYQ) Question Bank | DNB & Board Exams by MedForum.in';
@@ -88,6 +90,7 @@ function AppLayout() {
   if (currentScreen === 'analytics') return <AnalyticsScreen />;
   if (currentScreen === 'chapters') return <ChapterStudyScreen />;
   if (currentScreen === 'profile') return <ProfileScreen />;
+  if (currentScreen === 'upgrade') return <UpgradeGoldScreen />;
 
   // Main App Shell (Student / Admin View)
   return (

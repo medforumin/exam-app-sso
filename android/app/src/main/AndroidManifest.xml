@@ -29,7 +29,50 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Intent filter for custom app deep links (e.g. pediatricspyq://) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pediatricspyq" />
+            </intent-filter>
         </activity>
+
+    <!-- Package Visibility Queries for UPI Payment Schemes & App Intent Compatibility (Android 11+ / API 30+) -->
+    <queries>
+        <!-- Generic UPI scheme intents -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.PAY" />
+            <data android:scheme="upi" />
+        </intent>
+        <!-- Razorpay payment intent schemes -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="rzp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="razorpay" />
+        </intent>
+
+        <!-- Popular UPI App Packages for package detection and intent resolution -->
+        <package android:name="com.google.android.apps.nbu.paisa.user" /> <!-- Google Pay -->
+        <package android:name="com.phonepe.app" /> <!-- PhonePe -->
+        <package android:name="net.one97.paytm" /> <!-- Paytm -->
+        <package android:name="in.org.npci.upiapp" /> <!-- BHIM NPCI -->
+        <package android:name="com.whatsapp" /> <!-- WhatsApp Pay -->
+        <package android:name="com.cred.pay" /> <!-- CRED -->
+        <package android:name="com.amazon.mpay.android.app" /> <!-- Amazon Pay -->
+        <package android:name="com.axis.mobile" /> <!-- Axis Mobile -->
+        <package android:name="com.icicibank.pockets" /> <!-- ICICI Pockets / iMobile -->
+        <package android:name="com.sbi.upi" /> <!-- BHIM SBI Pay -->
+        <package android:name="com.mobikwik" /> <!-- MobiKwik -->
+    </queries>
 
         <activity android:name=".NoInternetActivity" />
 

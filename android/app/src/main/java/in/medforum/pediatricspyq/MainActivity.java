@@ -12,6 +12,10 @@ import android.provider.Settings;
 import android.view.View;
 import android.view.WindowManager;
 
+import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
+import android.widget.Toast;
+
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -20,6 +24,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 
 public class MainActivity extends BridgeActivity {
 
@@ -44,7 +49,31 @@ public class MainActivity extends BridgeActivity {
             startActivity(intent);
         }
 
-        // 2. Existing Edge-to-Edge Logic
+        // 2. Intercept custom UPI and payment intent schemes in WebView to prevent ERR_UNKNOWN_URL_SCHEME
+        if (this.bridge != null && this.bridge.getWebView() != null) {
+            this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (request != null && request.getUrl() != null) {
+                        String url = request.getUrl().toString();
+                        if (isUpiOrCustomScheme(url)) {
+                            return openCustomSchemeIntent(url);
+                        }
+                    }
+                    return super.shouldOverrideUrlLoading(view, request);
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    if (url != null && isUpiOrCustomScheme(url)) {
+                        return openCustomSchemeIntent(url);
+                    }
+                    return super.shouldOverrideUrlLoading(view, url);
+                }
+            });
+        }
+
+        // 3. Existing Edge-to-Edge Logic
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         final View root = findViewById(android.R.id.content);
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, windowInsets) -> {
@@ -56,6 +85,82 @@ public class MainActivity extends BridgeActivity {
         // Add screenshot and screen reader restrictions
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         root.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    /**
+     * Helper to detect UPI and custom payment app intent schemes (including Razorpay)
+     */
+    private boolean isUpiOrCustomScheme(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase();
+        return lower.startsWith("upi://") ||
+               lower.startsWith("gpay://") ||
+               lower.startsWith("phonepe://") ||
+               lower.startsWith("paytmmp://") ||
+               lower.startsWith("paytm://") ||
+               lower.startsWith("bhim://") ||
+               lower.startsWith("rzp://") ||
+               lower.startsWith("razorpay://") ||
+               lower.startsWith("intent://") ||
+               (lower.contains("api.razorpay.com") && lower.contains("upi"));
+    }
+
+    /**
+     * Safe intent launcher for UPI URIs & App-specific intents with resolveActivity check
+     */
+    private boolean openCustomSchemeIntent(String url) {
+        try {
+            Intent intent;
+            if (url.startsWith("intent://")) {
+                intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+            } else {
+                intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            // Check if there is an activity that can handle this intent
+            if (intent.resolveActivity(getPackageManager()) != null) {
+                startActivity(intent);
+                return true;
+            } else {
+                // Fallback attempt: if specific package intent fails, try generic upi:// pay intent
+                if (url.contains("scheme=upi") || url.startsWith("gpay://") || url.startsWith("phonepe://") || url.startsWith("paytmmp://") || url.startsWith("bhim://")) {
+                    Uri uri = Uri.parse(url);
+                    String query = uri.getQuery();
+                    if (query != null) {
+                        Intent fallbackIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay?" + query));
+                        fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        if (fallbackIntent.resolveActivity(getPackageManager()) != null) {
+                            startActivity(fallbackIntent);
+                            return true;
+                        }
+                    }
+                }
+                Toast.makeText(this, "No compatible UPI or payment app found on device.", Toast.LENGTH_SHORT).show();
+                return false;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            try {
+                // Emergency Fallback attempt
+                if (!url.startsWith("upi://pay") && url.contains("pa=")) {
+                    Uri uri = Uri.parse(url);
+                    String query = uri.getQuery();
+                    if (query != null) {
+                        Intent fallbackIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay?" + query));
+                        fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        if (fallbackIntent.resolveActivity(getPackageManager()) != null) {
+                            startActivity(fallbackIntent);
+                            return true;
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+            Toast.makeText(this, "Could not open payment application.", Toast.LENGTH_SHORT).show();
+            return false;
+        }
     }
 
     @Override

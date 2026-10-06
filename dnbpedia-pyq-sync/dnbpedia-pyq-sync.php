@@ -249,39 +249,89 @@ function pyq_sync_gold_membership_to_firestore($user_id, $order = null) {
     $user = get_userdata($user_id);
     if (!$user) return;
 
-    // Configurable Paid Level IDs (Level ID 1 is GOLD Membership)
-    $paid_level_ids = array(1);
+    // Configurable Free / Excluded Level IDs (e.g. Level ID 4 is Free Membership)
+    $free_level_ids = array(4);
 
     // Get active PMPro level for user
     $membership_level = function_exists('pmpro_getMembershipLevelForUser') ? pmpro_getMembershipLevelForUser($user_id) : null;
-    if (!$membership_level) return;
+    $level_id = $membership_level ? (int)$membership_level->id : 0;
+    $level_name = $membership_level ? $membership_level->name : '';
 
-    $level_id = (int)$membership_level->id;
-    $level_name = $membership_level->name;
+    $is_free_id = in_array($level_id, $free_level_ids, true);
+    $is_free_level = $membership_level && function_exists('pmpro_isLevelFree') ? pmpro_isLevelFree($membership_level) : false;
+    $is_free_name = (strpos(strtolower($level_name), 'free') !== false);
 
-    // RULE 6: ABORT FOR FREE MEMBERSHIPS
-    // Ignore free memberships or non-target levels
-    $is_paid_id = in_array($level_id, $paid_level_ids, true);
-    $is_gold_name = (strpos(strtolower($level_name), 'gold') !== false);
-    $is_free_level = function_exists('pmpro_isLevelFree') ? pmpro_isLevelFree($membership_level) : false;
+    $is_free = (!$membership_level || $level_id === 0 || $is_free_id || $is_free_level || $is_free_name);
 
-    if ($is_free_level || (!$is_paid_id && !$is_gold_name)) {
-        error_log('[PYQ Gold Sync] Skipped free/non-GOLD level (ID: ' . $level_id . ', Name: ' . $level_name . ') for user ' . $user->user_email);
+    $firebase_uid = get_user_meta($user_id, 'firebase_uid', true);
+    $email = $user->user_email;
+    $name = $user->display_name;
+
+    $cloud_function_url = 'https://asia-south1-dnbpediain.cloudfunctions.net/syncGoldStatusFromWP';
+    $secret = 'ihQt_9taH_L9B4_gTys_kfT2_gAxn';
+
+    // DOWNGRADE FLOW: Revert React App user role to 'standard' if level is free or cancelled
+    if ($is_free) {
+        $payload = array(
+            'uid'   => $firebase_uid,
+            'email' => $email,
+            'name'  => $name,
+            'role'  => 'standard', // Downgrades React App role to 'standard'
+        );
+
+        wp_remote_post($cloud_function_url, array(
+            'method'  => 'POST',
+            'headers' => array('Content-Type' => 'application/json', 'X-PYQ-Secret' => $secret),
+            'body'    => json_encode($payload),
+            'timeout' => 15,
+        ));
         return;
     }
 
-    // Determine plan duration in months
-    $duration_months = 3; // Default fallback
-    if (strpos(strtolower($level_name), '12 month') !== false || strpos(strtolower($level_name), '1 year') !== false) {
-        $duration_months = 12;
-    } else if (strpos(strtolower($level_name), '6 month') !== false) {
-        $duration_months = 6;
-    } else if (strpos(strtolower($level_name), '3 month') !== false) {
-        $duration_months = 3;
+    // Universal PMPro Duration Resolver (100% Future-Ready for any new PMPro membership level)
+    $duration_months = 3; // Default fallback if no expiration is specified
+
+    // 1. Read native PMPro expiration_number & expiration_period directly from PMPro level
+    if (!empty($membership_level->expiration_number) && !empty($membership_level->expiration_period)) {
+        $num = (int)$membership_level->expiration_number;
+        $period = strtolower($membership_level->expiration_period);
+        if ($period === 'month') {
+            $duration_months = max(1, $num);
+        } else if ($period === 'year') {
+            $duration_months = max(1, $num * 12);
+        } else if ($period === 'week') {
+            $duration_months = max(1, (int)round($num / 4));
+        } else if ($period === 'day') {
+            $duration_months = max(1, (int)round($num / 30));
+        }
+    } 
+    // 2. Or compute exact months if PMPro provides explicit enddate
+    else if (!empty($membership_level->enddate)) {
+        $end_timestamp = is_numeric($membership_level->enddate) ? (int)$membership_level->enddate : strtotime($membership_level->enddate);
+        $diff_seconds = max(0, $end_timestamp - time());
+        $calculated_months = (int)round($diff_seconds / (30 * 24 * 3600));
+        if ($calculated_months > 0) {
+            $duration_months = $calculated_months;
+        }
+    }
+    // 3. Fallback: Universal Regex Number Extraction from level name (e.g. "Level 6M", "Pass 12 Months", etc.)
+    else if (!empty($level_name)) {
+        if (preg_match('/\b(\d+)\s*(year|yr|y)\b/i', $level_name, $m)) {
+            $duration_months = (int)$m[1] * 12;
+        } else if (preg_match('/\b(\d+)\s*(month|mth|mo|m)\b/i', $level_name, $m)) {
+            $duration_months = (int)$m[1];
+        } else if (preg_match('/\b(\d+)\b/', $level_name, $m)) {
+            $val = (int)$m[1];
+            if ($val >= 1 && $val <= 36) {
+                $duration_months = $val;
+            }
+        }
     }
 
     $start_date = date('Y-m-d H:i:s');
-    $expiry_date = date('Y-m-d H:i:s', strtotime("+$duration_months months"));
+    $expiry_date = !empty($membership_level->enddate) 
+        ? date('Y-m-d H:i:s', is_numeric($membership_level->enddate) ? $membership_level->enddate : strtotime($membership_level->enddate))
+        : date('Y-m-d H:i:s', strtotime("+$duration_months months"));
 
     $firebase_uid = get_user_meta($user_id, 'firebase_uid', true);
     $email = $user->user_email;
@@ -291,16 +341,17 @@ function pyq_sync_gold_membership_to_firestore($user_id, $order = null) {
     $secret = 'ihQt_9taH_L9B4_gTys_kfT2_gAxn';
 
     $payload = array(
-        'uid'         => $firebase_uid,
-        'email'       => $email,
-        'name'        => $name,
-        'role'        => 'gold',
-        'goldStart'   => $start_date,
-        'goldExpiry'  => $expiry_date,
-        'planTitle'   => $level_name,
-        'levelId'     => $level_id,
-        'orderId'     => !empty($order) ? $order->code : '',
-        'amount'      => !empty($order) ? $order->total : 0,
+        'uid'            => $firebase_uid,
+        'email'          => $email,
+        'name'           => $name,
+        'role'           => 'gold',
+        'goldStartAt'    => date('c', strtotime($start_date)),
+        'goldExpiry'     => date('c', strtotime($expiry_date)),
+        'durationMonths' => $duration_months,
+        'planTitle'      => $level_name,
+        'levelId'        => $level_id,
+        'orderId'        => !empty($order) ? $order->code : '',
+        'amount'         => !empty($order) ? floatval($order->total) : 0,
     );
 
     $response = wp_remote_post($cloud_function_url, array(

@@ -284,7 +284,8 @@ export function AdminPanel() {
     announcement, saveAnnouncement, teaserQuestionCount, saveTeaserCount,
     teaser, saveTeaserMessage, upgradeMsg, saveUpgradeMessage, curriculumMap, saveCurriculumMap, userRole,
     infoPopupContent, showInfoPopup, infoPopupTarget, saveInfoPopupSettings, setIsInfoModalOpen,
-    ssoEnabled, saveSSOSettings, razorpayButtonId, saveRazorpayButtonId
+    ssoEnabled, saveSSOSettings, razorpayButtonId, saveRazorpayButtonId,
+    enableInAppUpiUpgrade, upiId, payeeName, enableRazorpayButton, planRates, savePaymentSettings
   } = useAppContext();
 
 
@@ -300,6 +301,19 @@ export function AdminPanel() {
   const [targetPlatform, setTargetPlatform] = useState(infoPopupTarget || 'all');
   const [ssoToggleState, setSsoToggleState] = useState(ssoEnabled ?? true);
   const [rzpButtonInput, setRzpButtonInput] = useState(razorpayButtonId || '');
+
+  // Payment tab states
+  const [payEnableUpi, setPayEnableUpi] = useState(enableInAppUpiUpgrade ?? true);
+  const [payUpiId, setPayUpiId] = useState(upiId || 'medforum@upi');
+  const [payPayeeName, setPayPayeeName] = useState(payeeName || 'MedForum Pediatrics');
+  const [payEnableRzp, setPayEnableRzp] = useState(enableRazorpayButton ?? false);
+  const [payRzpId, setPayRzpId] = useState(razorpayButtonId || '');
+  const [payRates, setPayRates] = useState({
+    plan_3m: planRates?.plan_3m || 2999,
+    plan_6m: planRates?.plan_6m || 4999,
+    plan_12m: planRates?.plan_12m || 7999
+  });
+
   const [editingId, setEditingId] = useState(null);
   const [newAppearance, setNewAppearance] = useState({ exam: 'DNB', year: 2025, session: 'June', paper: '1' });
   const [adminPage, setAdminPage] = useState(1);
@@ -323,6 +337,20 @@ export function AdminPanel() {
   useEffect(() => setTargetPlatform(infoPopupTarget || 'all'), [infoPopupTarget]);
   useEffect(() => setSsoToggleState(ssoEnabled ?? true), [ssoEnabled]);
   useEffect(() => setRzpButtonInput(razorpayButtonId || ''), [razorpayButtonId]);
+  useEffect(() => setPayEnableUpi(enableInAppUpiUpgrade ?? true), [enableInAppUpiUpgrade]);
+  useEffect(() => setPayUpiId(upiId || 'medforum@upi'), [upiId]);
+  useEffect(() => setPayPayeeName(payeeName || 'MedForum Pediatrics'), [payeeName]);
+  useEffect(() => setPayEnableRzp(enableRazorpayButton ?? false), [enableRazorpayButton]);
+  useEffect(() => setPayRzpId(razorpayButtonId || ''), [razorpayButtonId]);
+  useEffect(() => {
+    if (planRates) {
+      setPayRates({
+        plan_3m: planRates.plan_3m || 2999,
+        plan_6m: planRates.plan_6m || 4999,
+        plan_12m: planRates.plan_12m || 7999
+      });
+    }
+  }, [planRates]);
   useEffect(() => {
     if (curriculumMap) setLocalCurriculum(curriculumMap);
   }, [curriculumMap]);
@@ -453,6 +481,7 @@ export function AdminPanel() {
         <button onClick={() => setActiveTab('manage')} className={`text-sm font-medium whitespace-nowrap px-1 ${activeTab === 'manage' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-500'}`}> Manage Qs ({filteredManageQuestions.length}) </button>
         <button onClick={() => setActiveTab('curriculum')} className={`text-sm font-medium whitespace-nowrap px-1 ${activeTab === 'curriculum' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-500'}`}> Curriculum </button>
         <button onClick={() => setActiveTab('announcements')} className={`text-sm font-medium whitespace-nowrap px-1 ${activeTab === 'announcements' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-500'}`}> Settings </button>
+        <button onClick={() => setActiveTab('payments')} className={`text-sm font-medium whitespace-nowrap px-1 flex items-center gap-1.5 ${activeTab === 'payments' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-500'}`}> <CreditCard size={15} /> Payments </button>
       </div>
 
       {activeTab === 'add' && (
@@ -761,8 +790,8 @@ export function AdminPanel() {
                   type="button"
                   onClick={() => setTargetPlatform('all')}
                   className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${targetPlatform === 'all'
-                      ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
-                      : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                 >
                   <Globe size={14} /> Both (Web & Mobile)
@@ -771,8 +800,8 @@ export function AdminPanel() {
                   type="button"
                   onClick={() => setTargetPlatform('web')}
                   className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${targetPlatform === 'web'
-                      ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
-                      : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                 >
                   <Laptop size={14} /> Web App Only
@@ -781,8 +810,8 @@ export function AdminPanel() {
                   type="button"
                   onClick={() => setTargetPlatform('android')}
                   className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${targetPlatform === 'android'
-                      ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
-                      : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? 'bg-teal-50 dark:bg-teal-900/40 border-teal-500 text-teal-700 dark:text-teal-300 shadow-sm'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                 >
                   <Smartphone size={14} /> Android App Only
@@ -846,48 +875,6 @@ export function AdminPanel() {
               </button>
             </div>
           </div>
-
-          {/* Razorpay Payment Button Integration Card */}
-          <div className="bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 p-5 rounded-2xl shadow-sm mt-4">
-            <h3 className="font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
-              <CreditCard size={18} className="text-blue-600 dark:text-blue-400" />
-              Razorpay Payment Button Integration
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
-              Set default Razorpay Payment Button ID (e.g. <code>pl_P1a2B3c4D5e6F7</code>). Use shortcode <code>[razorpay_button]</code> or <code>[razorpay_button id="pl_XXXXXX"]</code> in any HTML content (Announcements, Upgrade Messages, Teasers, Popups, Solutions).
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2 mb-3">
-              <input
-                type="text"
-                className="flex-1 p-3 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-mono dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="e.g. pl_P1a2B3c4D5e6F7"
-                value={rzpButtonInput}
-                onChange={e => setRzpButtonInput(e.target.value)}
-              />
-              <button
-                onClick={() => saveRazorpayButtonId(rzpButtonInput)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 shrink-0"
-              >
-                <Save size={16} /> Save Button ID
-              </button>
-            </div>
-
-            <div className="bg-blue-50/70 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/60 p-3 rounded-xl text-xs space-y-2">
-              <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                <Code size={14} /> Shortcode Usage Cheatsheet:
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
-                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
-                  <code>[razorpay_button]</code>
-                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds default button ID set above</div>
-                </div>
-                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
-                  <code>[razorpay_button id="pl_ABC123"]</code>
-                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds specific custom Razorpay button</div>
-                </div>
-              </div>
-            </div>
-          </div>
           {showTeaserPreview && (
             <div className="mt-4">
               <h4 className="text-sm font-bold text-amber-800 mb-2">Teaser Preview</h4>
@@ -906,6 +893,209 @@ export function AdminPanel() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'payments' && (
+        <div className="space-y-6 animate-in fade-in zoom-in-95 pb-10">
+          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 text-white p-5 rounded-xl shadow-md flex items-center justify-between">
+            <div>
+              <h3 className="font-black text-lg flex items-center gap-2">
+                <CreditCard size={22} /> Payment & Membership Settings
+              </h3>
+              <p className="text-xs text-amber-100 mt-1 font-medium">
+                Manage In-App Direct UPI Upgrade, Razorpay Payment Gateway, Payee VPA, and Plan Rates.
+              </p>
+            </div>
+          </div>
+
+          {/* SECTION 1: Direct In-App UPI Upgrade Toggle & VPA Settings */}
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-3">
+              <div>
+                <h4 className="font-extrabold text-sm text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                  <Crown size={16} className="text-amber-500" /> Direct In-App UPI Upgrade System
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Toggle whether students see the built-in UPI Upgrade Screen or external WordPress membership link.
+                </p>
+              </div>
+
+              {/* Yes / No Toggle Switch */}
+              <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg border border-gray-200 dark:border-gray-600 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPayEnableUpi(true)}
+                  className={`px-3 py-1 text-xs font-black rounded-md transition-all ${payEnableUpi ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800 dark:hover:text-white'}`}
+                >
+                  YES (Active)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayEnableUpi(false)}
+                  className={`px-3 py-1 text-xs font-black rounded-md transition-all ${!payEnableUpi ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800 dark:hover:text-white'}`}
+                >
+                  NO (Deactive)
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Default Payee UPI ID (VPA)
+                </label>
+                <input
+                  type="text"
+                  value={payUpiId}
+                  onChange={(e) => setPayUpiId(e.target.value)}
+                  placeholder="e.g. medforum@upi"
+                  className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-mono dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Payee Business / Doctor Name
+                </label>
+                <input
+                  type="text"
+                  value={payPayeeName}
+                  onChange={(e) => setPayPayeeName(e.target.value)}
+                  placeholder="e.g. MedForum Pediatrics"
+                  className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2: Plan Pricing Rates */}
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+            <h4 className="font-extrabold text-sm text-gray-800 dark:text-gray-100 flex items-center gap-2 border-b border-gray-100 dark:border-gray-700 pb-3">
+              <Sparkles size={16} className="text-amber-500" /> Membership Plan Rates (₹ INR)
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                <label className="block text-xs font-extrabold text-amber-900 dark:text-amber-200 mb-1">
+                  3 Months Plan Rate (₹)
+                </label>
+                <input
+                  type="number"
+                  value={payRates.plan_3m}
+                  onChange={(e) => setPayRates({ ...payRates, plan_3m: Number(e.target.value) })}
+                  className="w-full p-2 border border-amber-300 dark:border-amber-700 rounded-lg text-sm font-bold dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                <label className="block text-xs font-extrabold text-amber-900 dark:text-amber-200 mb-1">
+                  6 Months Plan Rate (₹)
+                </label>
+                <input
+                  type="number"
+                  value={payRates.plan_6m}
+                  onChange={(e) => setPayRates({ ...payRates, plan_6m: Number(e.target.value) })}
+                  className="w-full p-2 border border-amber-300 dark:border-amber-700 rounded-lg text-sm font-bold dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                <label className="block text-xs font-extrabold text-amber-900 dark:text-amber-200 mb-1">
+                  12 Months Plan Rate (₹)
+                </label>
+                <input
+                  type="number"
+                  value={payRates.plan_12m}
+                  onChange={(e) => setPayRates({ ...payRates, plan_12m: Number(e.target.value) })}
+                  className="w-full p-2 border border-amber-300 dark:border-amber-700 rounded-lg text-sm font-bold dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 3: Razorpay Payment Gateway Settings */}
+          <div className="bg-white dark:bg-gray-800 p-5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-3">
+              <div>
+                <h4 className="font-extrabold text-sm text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                  <CreditCard size={16} className="text-blue-500" /> Razorpay Payment Button & Link
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Configure Razorpay Payment Button ID or direct Razorpay Payment Page URL.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg border border-gray-200 dark:border-gray-600 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPayEnableRzp(true)}
+                  className={`px-3 py-1 text-xs font-black rounded-md transition-all ${payEnableRzp ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800 dark:hover:text-white'}`}
+                >
+                  YES (Active)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayEnableRzp(false)}
+                  className={`px-3 py-1 text-xs font-black rounded-md transition-all ${!payEnableRzp ? 'bg-gray-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800 dark:hover:text-white'}`}
+                >
+                  NO (Inactive)
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Default Razorpay Payment Button ID / Payment URL
+              </label>
+              <input
+                type="text"
+                value={payRzpId}
+                onChange={(e) => setPayRzpId(e.target.value)}
+                placeholder="e.g. pl_P1a2B3c4D5e6F7 or https://pages.razorpay.com/..."
+                className="w-full p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-mono dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+
+            <div className="bg-blue-50/70 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/60 p-3.5 rounded-xl text-xs space-y-2">
+              <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                <Code size={14} /> Shortcode Usage Cheatsheet:
+              </div>
+              <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">
+                Use shortcode <code>[razorpay_button]</code> or <code>[razorpay_button id="pl_XXXXXX"]</code> in any HTML content (Announcements, Upgrade Messages, Teasers, Popups, Solutions).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
+                  <code>[razorpay_button]</code>
+                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds default button ID set above</div>
+                </div>
+                <div className="bg-white dark:bg-gray-900 p-2 rounded border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-300">
+                  <code>[razorpay_button id="pl_ABC123"]</code>
+                  <div className="text-[10px] text-gray-500 font-sans mt-0.5">Embeds specific custom Razorpay button</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SAVE BUTTON */}
+          <div className="flex justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                savePaymentSettings({
+                  enableInAppUpiUpgrade: payEnableUpi,
+                  upiId: payUpiId,
+                  payeeName: payPayeeName,
+                  enableRazorpayButton: payEnableRzp,
+                  razorpayButtonId: payRzpId,
+                  planRates: payRates
+                });
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-black text-sm flex items-center gap-2 shadow-lg shadow-amber-600/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Save size={18} /> Save All Payment Settings
+            </button>
+          </div>
         </div>
       )}
     </div>

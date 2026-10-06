@@ -15,9 +15,10 @@ import { customConfirm } from '../platform/native';
 import { NavigationFooter } from '../components/NavigationFooter';
 import { RestrictedAccessWrapper } from '../components/RestrictedAccessWrapper';
 import { LoginRequiredView } from '../components/StatusScreens';
+import { getGoldStartAt } from '../utils/membershipSchema';
 
 export function ProfileScreen() {
-  const { currentUser, setCurrentScreen, darkMode, setUserName, handleLogout, goBack, userRole } = useAppContext();
+  const { currentUser, setCurrentScreen, darkMode, setUserName, handleLogout, goBack, userRole, enableInAppUpiUpgrade } = useAppContext();
 
   if (!currentUser || userRole === 'guest') {
     return (
@@ -68,7 +69,7 @@ export function ProfileScreen() {
             }));
             setMembershipData({
               role: data.role || userRole || 'standard',
-              goldStartAt: data.goldStartAt || data.goldStartDate || data.goldStartdate || data.goldstartat || data.goldLastUpdatedAt || null,
+              goldStartAt: getGoldStartAt(data),
               goldExpiry: data.goldExpiry || null
             });
             if (data.name && data.name !== currentUser.displayName) {
@@ -307,18 +308,32 @@ export function ProfileScreen() {
                 </div>
               </div>
 
-              <div className="w-full sm:w-auto">
-                <a
-                  href="https://dnbpedia.in/membership-account/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl border transition-all shadow-sm ${isGold
-                    ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 dark:border-amber-500'
-                    : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-700 dark:border-teal-500'
-                    }`}
-                >
-                  Manage Membership <ExternalLink size={12} className="sm:w-3.5 sm:h-3.5" />
-                </a>
+              <div className="w-full sm:w-auto flex items-center gap-2">
+                {enableInAppUpiUpgrade ? (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentScreen('upgrade')}
+                    className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl border transition-all shadow-sm ${isGold
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 dark:border-amber-500'
+                      : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-amber-600 shadow-amber-500/20'
+                      }`}
+                  >
+                    <Crown size={14} className="fill-white" />
+                    {isGold ? 'Manage GOLD Membership' : 'Upgrade to GOLD'}
+                  </button>
+                ) : (
+                  <a
+                    href="https://dnbpedia.in/membership-account/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl border transition-all shadow-sm ${isGold
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 dark:border-amber-500'
+                      : 'bg-teal-600 hover:bg-teal-700 text-white border-teal-700 dark:border-teal-500'
+                      }`}
+                  >
+                    Manage Membership <ExternalLink size={12} className="sm:w-3.5 sm:h-3.5" />
+                  </a>
+                )}
               </div>
             </div>
 
