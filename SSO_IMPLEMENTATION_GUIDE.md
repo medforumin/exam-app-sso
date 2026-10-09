@@ -27,7 +27,7 @@ This document serves as the complete technical specification and reference guide
                                          v
 +----------------------------------------+------------------------------------------+
 |                        WORDPRESS SITE (dnbpedia.in)                               |
-|                  Plugin: dnbpedia-pyq-sync.php (v1.4)                             |
+|                  Plugin: dnbpedia-pyq-sync.php (v2.0.0)                           |
 | - Validates single-use token pyq_sso_token                                       |
 | - Calls wp_set_auth_cookie($user_id) with official wp-config.php secret salts      |
 | - Redirects user logged-in seamlessly in Chrome/Safari                           |
@@ -105,7 +105,7 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
 
 ---
 
-## 4. WordPress Custom Plugin Code (`dnbpedia-pyq-sync.php` v1.4)
+## 4. WordPress Custom Plugin Code (`dnbpedia-pyq-sync.php` v2.0.0)
 
 Deploy this code to `/wp-content/plugins/dnbpedia-pyq-sync/dnbpedia-pyq-sync.php` on `https://dnbpedia.in`:
 
@@ -113,9 +113,9 @@ Deploy this code to `/wp-content/plugins/dnbpedia-pyq-sync/dnbpedia-pyq-sync.php
 <?php
 /**
  * Plugin Name: DNBPedia PYQ User Sync & SSO
- * Description: Auto-provisions subscriber accounts and handles Single Sign-On (SSO) magic links from PYQ App.
- * Version: 1.4
- * Author: PYQ Team
+ * Description: Two-way SSO magic link authentication & real-time PMPro membership duration synchronization between WordPress and Pediatrics PYQ App.
+ * Version: 2.0.0
+ * Author: Dr. Mradul with Antigravity
  */
 
 if (!defined('ABSPATH')) exit;

@@ -1,8 +1,8 @@
 import { isNativePlatform, showToast } from '../platform/native';
 
 export const DEFAULT_UPI_CONFIG = {
-  upiId: 'medforum@upi',
-  payeeName: 'MedForum Pediatrics',
+  upiId: 'medforum@ybl',
+  payeeName: 'MEERA',
   currency: 'INR'
 };
 

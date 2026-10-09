@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Smartphone, QrCode, Copy, CheckCircle2, Zap,
-  ShieldCheck, AlertCircle, Send, ArrowRight
+  ShieldCheck, AlertCircle, Send, ArrowRight, Mail
 } from 'lucide-react';
 import {
   DEFAULT_UPI_CONFIG,
@@ -12,6 +12,7 @@ import {
   copyUpiIdToClipboard
 } from '../utils/upiIntent';
 import { showToast } from '../platform/native';
+import { useAppContext } from '../context/AppContext';
 
 export function UpiPaymentSection({
   amount = 2999,
@@ -26,10 +27,29 @@ export function UpiPaymentSection({
   const [utrNumber, setUtrNumber] = useState('');
   const [activeTab, setActiveTab] = useState('intent'); // 'intent' | 'qr'
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+
+  const appCtx = useAppContext ? useAppContext() : {};
+  const currentUser = appCtx?.currentUser;
+  const setCurrentScreen = appCtx?.setCurrentScreen;
 
   const payeeUpiId = upiConfig.upiId || DEFAULT_UPI_CONFIG.upiId;
   const payeeName = upiConfig.payeeName || DEFAULT_UPI_CONFIG.payeeName;
   const transactionNote = `Gold_Membership_${planId}`;
+
+  const mailtoSubject = 'Payment confirmation for PediaQ GOLD membership';
+  const mailtoBody = `Hello PediaQ Team,
+
+I have completed the payment for PediaQ GOLD Membership.
+
+Plan: ${planTitle}
+Amount: ₹${amount}
+${utrNumber ? `Transaction / UTR ID: ${utrNumber}\n` : ''}${currentUser?.email ? `User Email: ${currentUser.email}\n` : ''}
+Please find my payment screenshot attached.
+
+Thank you!`;
+
+  const mailtoUrl = `mailto:pyq@dnbpedia.in?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`;
 
   // Generate UPI Payment URI
   const upiUrl = buildUpiUrl({
@@ -78,11 +98,12 @@ export function UpiPaymentSection({
       });
       if (res !== false) {
         setSubmissionSuccess(true);
+        setShowConfirmationModal(true);
         setUtrNumber('');
       }
     } else {
-      showToast('Payment verification request submitted!');
       setSubmissionSuccess(true);
+      setShowConfirmationModal(true);
     }
   };
 
@@ -107,6 +128,15 @@ export function UpiPaymentSection({
       </div>
 
       <div className="p-4 sm:p-6 space-y-5">
+
+        {/* Notice Banner */}
+        <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/80 p-3.5 rounded-xl flex items-start gap-3 text-amber-900 dark:text-amber-200 shadow-sm">
+          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs font-medium leading-relaxed">
+            <span className="font-extrabold text-amber-950 dark:text-amber-100 block mb-0.5">Important Notice:</span>
+            After successful payment send the Trasaction Id via the below option or send the screenshot via email
+          </div>
+        </div>
 
         {/* Tab Switcher: Mobile App Intent vs Desktop QR Code */}
         <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
@@ -226,6 +256,11 @@ export function UpiPaymentSection({
                 loading="lazy"
               />
             </div>
+            
+            <div className="px-3.5 py-1 rounded-full bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700/80 text-xs font-bold text-amber-950 dark:text-amber-200 shadow-xs">
+              Paying to <span className="font-extrabold">{payeeName}</span> (<span className="font-mono">{payeeUpiId}</span>)
+            </div>
+
             <div>
               <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 Scan using any UPI App (GPay, PhonePe, Paytm, BHIM)
@@ -278,18 +313,36 @@ export function UpiPaymentSection({
               Submitted UTR: <span className="font-mono font-bold">{userPendingRequest.utrNumber}</span>
             </p>
             <p className="text-[11px] text-amber-600 dark:text-amber-400">
-              Our admin team is verifying your payment. Your GOLD membership privileges will be activated shortly upon approval.
+              Transaction details submitted successfully! Our admin team will verify and activate your GOLD membership within 6-12 hours.
             </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setCurrentScreen && setCurrentScreen('support')}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-200 underline hover:opacity-80"
+              >
+                Visit support page to contact us if needed →
+              </button>
+            </div>
           </div>
         ) : submissionSuccess ? (
-          <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 rounded-xl text-center space-y-1.5 animate-in zoom-in-95 duration-200">
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 rounded-xl text-center space-y-2 animate-in zoom-in-95 duration-200">
             <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-md">
               <CheckCircle2 size={20} />
             </div>
-            <h4 className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">Payment Reference Submitted Successfully!</h4>
+            <h4 className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">Transaction Details Submitted Successfully!</h4>
             <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
-              Your transaction details have been logged for admin verification.
+              Your transaction details have been submitted successfully. The admin will activate your membership within 6-12 hours.
             </p>
+            <div>
+              <button
+                type="button"
+                onClick={() => setCurrentScreen && setCurrentScreen('support')}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-200 underline hover:opacity-80"
+              >
+                Visit support page to contact us if needed →
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleFormSubmit} className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
@@ -324,7 +377,62 @@ export function UpiPaymentSection({
           </form>
         )}
 
+        {/* Send Email Confirmation Button below Submit UTR */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col items-center gap-2">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+            Or send payment confirmation / screenshot via email:
+          </span>
+          <a
+            href={mailtoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.99]"
+          >
+            <Mail size={15} /> Send Email to pyq@dnbpedia.in
+          </a>
+        </div>
+
       </div>
+
+      {/* Interactive Popup Modal after UTR Submission */}
+      {showConfirmationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-center transform animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center mx-auto">
+              <CheckCircle2 size={32} />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                Transaction Details Submitted!
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Your transaction details have been submitted successfully. The admin will activate your membership within 6-12 hours. Visit support page to contact us if needed.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmationModal(false);
+                  if (setCurrentScreen) setCurrentScreen('support');
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-all shadow-md"
+              >
+                Visit Support Page
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConfirmationModal(false)}
+                className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -31,7 +31,7 @@ import { SafeHtmlContent } from './app/components/SafeHtmlContent';
 
 function AppLayout() {
   const {
-    currentScreen, viewMode, setViewMode, userRole,
+    currentScreen, setCurrentScreen, viewMode, setViewMode, userRole,
     currentUser, darkMode, announcement
   } = useAppContext();
 
@@ -42,7 +42,7 @@ function AppLayout() {
       howto: 'How To Use | PediaQ (Pediatrics PYQ) Guide',
       terms: 'Terms & Conditions | PediaQ',
       support: 'Support & Help | PediaQ',
-      about: 'About Us & Version 7.5 | PediaQ (Pediatrics PYQ)',
+      about: 'About Us & Version 8.0 | PediaQ (Pediatrics PYQ)',
       analytics: 'Exam Readiness Analytics | PediaQ (Pediatrics PYQ)',
       chapters: 'Chapter Study Mode | PediaQ (Pediatrics PYQ)',
       profile: 'User Profile & Settings | PediaQ',
@@ -52,34 +52,84 @@ function AppLayout() {
     document.title = titleMap[currentScreen] || 'PediaQ (Pediatrics PYQ) Question Bank | DNB & Board Exams by MedForum.in';
   }, [currentScreen]);
 
-  // Global Interceptor for all dnbpedia.in links (including HTML text editor content)
+  // Global Interceptor for internal screen links and dnbpedia.in links (including HTML text editor content)
   useEffect(() => {
+    const validScreens = new Set([
+      'welcome', 'study', 'howto', 'terms', 'support', 'about', 'analytics', 'chapters', 'profile', 'upgrade'
+    ]);
+
     const handleGlobalLinkClick = async (event) => {
       const anchor = event.target.closest('a');
-      if (!anchor || !anchor.href) return;
+      if (!anchor) return;
 
-      const urlString = anchor.href.toLowerCase();
+      const rawHref = anchor.getAttribute('href') || '';
+      const dataScreen = anchor.getAttribute('data-screen');
 
-      // Only intercept dnbpedia.in web page links
+      // 1. Check for data-screen attribute (e.g. <a href="#" data-screen="support">)
+      if (dataScreen && validScreens.has(dataScreen.toLowerCase())) {
+        event.preventDefault();
+        setCurrentScreen(dataScreen.toLowerCase());
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      if (!rawHref) return;
+      const hrefClean = rawHref.trim().toLowerCase();
+
+      // 2. Check for hash/screen syntax (e.g. href="#screen:support", href="#screen=support", href="#support", href="app://support", href="/app/support")
+      let targetScreen = null;
+
+      if (hrefClean.startsWith('#screen:') || hrefClean.startsWith('#screen=')) {
+        targetScreen = hrefClean.split(/[:=]/)[1];
+      } else if (hrefClean.startsWith('app://')) {
+        targetScreen = hrefClean.replace('app://', '');
+      } else if (hrefClean.startsWith('/app/')) {
+        targetScreen = hrefClean.replace('/app/', '');
+      } else if (hrefClean.startsWith('#') && hrefClean.length > 1) {
+        const potentialScreen = hrefClean.substring(1);
+        if (validScreens.has(potentialScreen)) {
+          targetScreen = potentialScreen;
+        }
+      }
+
+      if (targetScreen && validScreens.has(targetScreen)) {
+        event.preventDefault();
+        setCurrentScreen(targetScreen);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      // 3. Bypass non-HTTP protocols (mailto:, tel:, sms:, whatsapp:, etc.)
+      if (hrefClean.startsWith('mailto:') || hrefClean.startsWith('tel:') || hrefClean.startsWith('sms:') || hrefClean.startsWith('whatsapp:')) {
+        return;
+      }
+
+      // 4. Intercept dnbpedia.in web page links for SSO auto-login
+      const urlString = anchor.href ? anchor.href.toLowerCase() : '';
       if (urlString.includes('dnbpedia.in')) {
-        // Skip direct media, images, and file downloads (.jpg, .png, .pdf, etc.)
         const isMediaFile = /\.(png|jpe?g|gif|webp|svg|pdf|zip|rar)$/i.test(urlString);
         if (isMediaFile) return;
 
-        event.preventDefault();
         try {
           const urlObj = new URL(anchor.href);
+          // Only intercept HTTP/HTTPS web page navigation to dnbpedia.in
+          if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+            return;
+          }
+
+          event.preventDefault();
           const targetPath = urlObj.pathname + urlObj.search;
           await openWordPressWithAutoLogin(targetPath);
         } catch {
-          window.open(anchor.href, '_blank');
+          // If URL parsing fails, let standard browser action proceed
+          return;
         }
       }
     };
 
     document.addEventListener('click', handleGlobalLinkClick);
     return () => document.removeEventListener('click', handleGlobalLinkClick);
-  }, []);
+  }, [setCurrentScreen]);
 
   // Screen Router
   if (currentScreen === 'welcome') return <WelcomeScreen />;

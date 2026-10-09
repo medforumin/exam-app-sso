@@ -1,6 +1,7 @@
 const { setGlobalOptions } = require("firebase-functions");
 const { onUserCreated } = require("firebase-functions/v2/identity");
 const { onRequest } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 
@@ -11,6 +12,8 @@ setGlobalOptions({ region: "asia-south1" });
 
 const WP_SITE_URL = "https://dnbpedia.in";
 const PYQ_SECRET = "ihQt_9taH_L9B4_gTys_kfT2_gAxn";
+
+const getDb = () => getFirestore("default");
 
 // Triggers 100% guaranteed on every Firebase Auth registration
 exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
@@ -28,30 +31,16 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
 
   let name = "";
 
-  // 1. Try reading from named Firestore DB 'default' (matching client app: db = getFirestore(app, "default"))
+  // 1. Try reading from named Firestore DB 'default' (matching client app)
   try {
-    const dbNamed = getFirestore("default");
+    const dbNamed = getDb();
     const userDoc = await dbNamed.doc(`users/${user.uid}`).get();
     if (userDoc.exists && userDoc.data() && userDoc.data().name) {
       name = userDoc.data().name;
-      console.log(`[WPSync] Retrieved name "${name}" from named Firestore db 'default' users/${user.uid}`);
+      console.log(`[WPSync] Retrieved name "${name}" from Firestore db 'default' users/${user.uid}`);
     }
   } catch (fsErr) {
-    console.warn("[WPSync] Could not fetch from named Firestore db 'default':", fsErr.message);
-  }
-
-  // 2. Fallback: Try reading from standard default Firestore DB '(default)'
-  if (!name) {
-    try {
-      const dbDefault = getFirestore();
-      const userDoc = await dbDefault.doc(`users/${user.uid}`).get();
-      if (userDoc.exists && userDoc.data() && userDoc.data().name) {
-        name = userDoc.data().name;
-        console.log(`[WPSync] Retrieved name "${name}" from default Firestore db users/${user.uid}`);
-      }
-    } catch (fsErr2) {
-      console.warn("[WPSync] Could not fetch from default Firestore db:", fsErr2.message);
-    }
+    console.warn("[WPSync] Could not fetch from Firestore db 'default':", fsErr.message);
   }
 
   // 3. Fallback: Try reading fresh displayName from Firebase Auth Admin SDK
@@ -128,7 +117,7 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
     return res.status(403).json({ error: "Unauthorized request" });
   }
 
-  const { uid, email, name, role, goldStart, goldExpiry, planTitle, orderId, amount, levelId } = req.body;
+  const { uid, email, name, role, goldStart, goldStartAt, goldExpiry, planTitle, orderId, amount, levelId, durationMonths } = req.body;
 
   if (!email && !uid) {
     return res.status(400).json({ error: "Missing required identifier (uid or email)" });
@@ -185,17 +174,11 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
       };
 
       try {
-        const dbNamed = getFirestore("default");
-        await dbNamed.doc(`users/${targetUid}`).set(downgradeData, { merge: true });
+        const db = getDb();
+        await db.doc(`users/${targetUid}`).set(downgradeData, { merge: true });
+        console.log(`[GoldSync] Successfully downgraded user ${targetUid} to standard role`);
       } catch (fsErr) {
-        console.warn(`[GoldSync] Error updating named db for downgrade:`, fsErr.message);
-      }
-
-      try {
-        const dbDefault = getFirestore();
-        await dbDefault.doc(`users/${targetUid}`).set(downgradeData, { merge: true });
-      } catch (fsErr2) {
-        console.warn(`[GoldSync] Error updating default db for downgrade:`, fsErr2.message);
+        console.warn(`[GoldSync] Error updating db for downgrade:`, fsErr.message);
       }
 
       return res.status(200).json({
@@ -209,13 +192,16 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
     // Role requested is 'gold' (Upgrade / Renewal flow)
     const startIso = goldStartAt || goldStart ? new Date(goldStartAt || goldStart).toISOString() : nowIso;
 
-    const parsedMonths = Number(durationMonths) || (
-      levelId === 3 ? 12 :
-      levelId === 2 ? 6 :
-      planTitle && planTitle.includes("12") ? 12 :
-      planTitle && planTitle.includes("6") ? 6 :
-      planTitle && planTitle.includes("1") ? 1 : 3
-    );
+    let parsedMonths = Number(durationMonths) || 0;
+    if (!parsedMonths || isNaN(parsedMonths)) {
+      if (planTitle) {
+        if (/\b(12|1\s*year|annual)\b/i.test(planTitle)) parsedMonths = 12;
+        else if (/\b(6|6m)\b/i.test(planTitle)) parsedMonths = 6;
+        else if (/\b(3|3m)\b/i.test(planTitle)) parsedMonths = 3;
+        else if (/\b(1|1m)\b/i.test(planTitle)) parsedMonths = 1;
+      }
+      if (!parsedMonths) parsedMonths = levelId === 3 ? 12 : levelId === 2 ? 6 : 3;
+    }
 
     const chargeAmount = Number(amount || 0);
 
@@ -238,8 +224,8 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
 
     let existingHistory = [];
     try {
-      const dbNamed = getFirestore("default");
-      const userSnap = await dbNamed.doc(`users/${targetUid}`).get();
+      const db = getDb();
+      const userSnap = await db.doc(`users/${targetUid}`).get();
       if (userSnap.exists && Array.isArray(userSnap.data().goldRevenueHistory)) {
         existingHistory = userSnap.data().goldRevenueHistory;
       }
@@ -266,22 +252,21 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
       goldData.createdAt = new Date().toISOString();
     }
 
-    // Update named Firestore DB 'default'
+    // Update Firestore DB 'default'
     try {
-      const dbNamed = getFirestore("default");
-      await dbNamed.doc(`users/${targetUid}`).set(goldData, { merge: true });
-      console.log(`[GoldSync] Updated named db 'default' users/${targetUid} with GOLD status (Expiry: ${goldExpiry})`);
+      const db = getDb();
+      await db.doc(`users/${targetUid}`).set(goldData, { merge: true });
+      console.log(`[GoldSync] Updated Firestore db 'default' users/${targetUid} with GOLD status (Expiry: ${expiryIso})`);
     } catch (fsErr) {
-      console.warn(`[GoldSync] Warning updating named db 'default':`, fsErr.message);
+      console.warn(`[GoldSync] Warning updating db 'default':`, fsErr.message);
     }
 
-    // Update standard default Firestore DB '(default)'
+    // Trigger GOLD Welcome Email if notification system is active in systemConfig/emailSettings
     try {
-      const dbDefault = getFirestore();
-      await dbDefault.doc(`users/${targetUid}`).set(goldData, { merge: true });
-      console.log(`[GoldSync] Updated default db users/${targetUid} with GOLD status`);
-    } catch (fsErr2) {
-      console.warn(`[GoldSync] Warning updating default db:`, fsErr2.message);
+      const dbForEmail = getDb();
+      await sendGoldUpgradeEmailFromCloudFunction(dbForEmail, email, name, startIso, expiryIso, parsedMonths);
+    } catch (eErr) {
+      console.warn(`[GoldSync] Warning invoking upgrade email helper:`, eErr.message);
     }
 
     return res.status(200).json({
@@ -289,11 +274,224 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
       uid: targetUid,
       isNewUser: isAutoProvisioned,
       message: `User ${targetUid} upgraded to ${role || "Gold"} successfully`,
-      goldExpiry: goldExpiry,
+      goldExpiry: expiryIso,
     });
   } catch (err) {
     console.error("[GoldSync] Error syncing GOLD status from WP:", err);
     return res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * Helper to dispatch Gold Upgrade Welcome email from Cloud Function
+ */
+async function sendGoldUpgradeEmailFromCloudFunction(db, recipientEmail, recipientName, startIso, expiryIso, parsedMonths) {
+  if (!recipientEmail) return;
+
+  try {
+    const settingsSnap = await db.doc("systemConfig/emailSettings").get();
+    if (!settingsSnap.exists) return;
+
+    const settings = settingsSnap.data() || {};
+    if (!settings.enabled) {
+      console.log(`[Email System] Notification system is DEACTIVATED. Skipping upgrade email for ${recipientEmail}.`);
+      return;
+    }
+
+    const templatesSnap = await db.doc("systemConfig/emailTemplates").get();
+    let template = null;
+    if (templatesSnap.exists && templatesSnap.data() && templatesSnap.data().gold_welcome) {
+      template = templatesSnap.data().gold_welcome;
+    }
+
+    const defaultSubject = "[Pediatrics PYQ] Welcome to GOLD Membership!";
+    const defaultBodyHtml = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+  <div style="background: linear-gradient(135deg, #4f46e5, #d97706); padding: 24px; text-align: center; color: #ffffff;">
+    <h1 style="margin: 0; font-size: 24px;">Welcome to GOLD Access!</h1>
+    <p style="margin-top: 8px; opacity: 0.9; font-size: 14px;">Your subscription has been activated</p>
+  </div>
+  <div style="padding: 24px; color: #334155; line-height: 1.6;">
+    <p>Dear <strong>{{userName}}</strong>,</p>
+    <p>We are excited to let you know that your account has been upgraded to <strong>GOLD Membership</strong> for <strong>{{appTitle}}</strong>!</p>
+    
+    <div style="background: #f8fafc; border-left: 4px solid #d97706; padding: 16px; border-radius: 8px; margin: 20px 0;">
+      <h3 style="margin-top: 0; color: #92400e;">Subscription Details</h3>
+      <p style="margin: 4px 0;"><strong>Plan Duration:</strong> {{planMonths}}</p>
+      <p style="margin: 4px 0;"><strong>Start Date:</strong> {{goldStartAt}}</p>
+      <p style="margin: 4px 0;"><strong>Expiration Date:</strong> {{expiryDate}}</p>
+    </div>
+
+    <p>You now have full access to high-yield past questions, explanations, and exclusive GOLD preparation material.</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="https://pediatrics.medforum.in" style="background-color: #d97706; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Explore GOLD Content Now</a>
+    </div>
+
+    <p style="font-size: 13px; color: #64748b;">If you have any questions or need assistance, reply directly to this email or reach us at {{supportEmail}}.</p>
+  </div>
+  <div style="background: #f1f5f9; padding: 16px; text-align: center; font-size: 12px; color: #64748b;">
+    © {{appTitle}} Team. All rights reserved.
+  </div>
+</div>`;
+
+    const subjectRaw = template?.subject || defaultSubject;
+    const bodyHtmlRaw = template?.bodyHtml || defaultBodyHtml;
+
+    const startDateStr = new Date(startIso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const expiryDateStr = new Date(expiryIso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const safeName = recipientName || recipientEmail.split("@")[0];
+
+    const vars = {
+      userName: safeName,
+      userEmail: recipientEmail,
+      goldStartAt: startDateStr,
+      expiryDate: expiryDateStr,
+      planMonths: `${parsedMonths || 1} Month(s)`,
+      appTitle: "Pediatrics PYQ",
+      supportEmail: settings.replyTo || settings.fromEmail || "pediatrics@e.dnbpedia.in",
+    };
+
+    let renderedSubject = subjectRaw;
+    let renderedHtml = bodyHtmlRaw;
+    Object.keys(vars).forEach(key => {
+      const val = vars[key] || "";
+      renderedSubject = renderedSubject.split(`{{${key}}}`).join(val);
+      renderedHtml = renderedHtml.split(`{{${key}}}`).join(val);
+    });
+
+    // Send via Apps Script Bridge if configured
+    if (settings.useAppScriptBridge && settings.appScriptUrl) {
+      await fetch(settings.appScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({
+          action: "sendEmail",
+          secretKey: settings.appScriptSecret || "PYQ_SECURE_KEY_2026",
+          to: recipientEmail,
+          subject: renderedSubject,
+          htmlBody: renderedHtml,
+          fromName: settings.fromName || "Pediatrics PYQ Admin",
+          fromEmail: settings.fromEmail || "pediatrics@e.dnbpedia.in",
+          replyTo: settings.replyTo || settings.fromEmail || "pediatrics@e.dnbpedia.in",
+        }),
+      });
+      console.log(`[GoldSync Email] Dispatched GOLD welcome email to ${recipientEmail} via Apps Script Bridge.`);
+    } else if (settings.customWebhookUrl) {
+      await fetch(settings.customWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: recipientEmail,
+          subject: renderedSubject,
+          htmlBody: renderedHtml,
+          fromName: settings.fromName || "Pediatrics PYQ Admin",
+          fromEmail: settings.fromEmail || "pediatrics@e.dnbpedia.in",
+          replyTo: settings.replyTo || settings.fromEmail || "pediatrics@e.dnbpedia.in",
+        }),
+      });
+      console.log(`[GoldSync Email] Dispatched GOLD welcome email to ${recipientEmail} via Webhook.`);
+    }
+  } catch (emailErr) {
+    console.error("[GoldSync Email Error] Failed to send upgrade email from Cloud Function:", emailErr.message);
+  }
+}
+
+/**
+ * Triggers automatically whenever a user submits a new UTR / Payment Request
+ * Uses the emailService configuration stored in Firestore systemConfig/emailSettings
+ */
+exports.notifyAdminOnPendingUtr = onDocumentCreated(
+  {
+    document: "membership_requests/{requestId}",
+    database: "default",
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data();
+    if (!data) return;
+
+    console.log(`[Admin UTR Notification] New request submitted by ${data.userEmail || data.userName} for UTR ${data.utrNumber}`);
+
+    try {
+      const db = getDb();
+      const settingsSnap = await db.doc("systemConfig/emailSettings").get();
+      if (!settingsSnap.exists) {
+        console.warn("[Admin UTR Notification] emailSettings document missing in systemConfig.");
+        return;
+      }
+
+      const settings = settingsSnap.data();
+      if (!settings || !settings.enabled) {
+        console.log("[Admin UTR Notification] Email notifications disabled in systemConfig/emailSettings.");
+        return;
+      }
+
+      const adminRecipient = settings.adminNotificationEmail || settings.fromEmail || "pyq@dnbpedia.in";
+      const subject = `[Payment Verification] New UTR ${data.utrNumber} submitted by ${data.userEmail || data.userName}`;
+
+      const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #d97706, #b45309); padding: 24px; text-align: center; color: #ffffff;">
+            <h1 style="margin: 0; font-size: 22px;">New Pending UTR Verification</h1>
+            <p style="margin-top: 6px; font-size: 14px; opacity: 0.9;">PediaQ GOLD Membership Payment Request</p>
+          </div>
+          <div style="padding: 24px; color: #334155; line-height: 1.6;">
+            <p>Hello Admin,</p>
+            <p>A student has submitted their payment reference details for verification:</p>
+            
+            <div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #d97706; padding: 16px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 4px 0;"><strong>Student Name:</strong> ${data.userName || "N/A"}</p>
+              <p style="margin: 4px 0;"><strong>Student Email:</strong> ${data.userEmail || "N/A"}</p>
+              <p style="margin: 4px 0;"><strong>Plan Requested:</strong> ${data.planTitle || "Gold Membership"}</p>
+              <p style="margin: 4px 0;"><strong>Amount Paid:</strong> ₹${data.amount}</p>
+              <p style="margin: 4px 0;"><strong>Submitted UTR / Ref No:</strong> <span style="font-family: monospace; font-weight: bold; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${data.utrNumber}</span></p>
+              <p style="margin: 4px 0;"><strong>Submitted At:</strong> ${new Date(data.createdAt || Date.now()).toLocaleString("en-IN")}</p>
+            </div>
+
+            <p style="font-size: 13px; color: #64748b;">Please log in to the PediaQ Admin Dashboard to verify and approve or decline this payment request.</p>
+          </div>
+          <div style="background: #f1f5f9; padding: 16px; text-align: center; font-size: 12px; color: #64748b;">
+            © PediaQ Admin System • Automated Notification
+          </div>
+        </div>
+      `;
+
+      // 1. Apps Script Bridge
+      if (settings.useAppScriptBridge && settings.appScriptUrl) {
+        await fetch(settings.appScriptUrl, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify({
+            action: "sendEmail",
+            secretKey: settings.appScriptSecret || "PYQ_SECURE_KEY_2026",
+            to: adminRecipient,
+            subject: subject,
+            htmlBody: htmlBody,
+            fromName: settings.fromName || "PediaQ Payment System",
+            fromEmail: settings.fromEmail || "pediatrics@e.dnbpedia.in",
+            replyTo: data.userEmail || settings.fromEmail || "pediatrics@e.dnbpedia.in",
+          }),
+        });
+        console.log(`[Admin UTR Notification] Admin alert sent to ${adminRecipient} via Apps Script Bridge.`);
+      } else if (settings.customWebhookUrl) {
+        await fetch(settings.customWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: adminRecipient,
+            subject: subject,
+            htmlBody: htmlBody,
+            fromName: settings.fromName || "PediaQ Payment System",
+            fromEmail: settings.fromEmail || "pediatrics@e.dnbpedia.in",
+            replyTo: data.userEmail || settings.fromEmail || "pediatrics@e.dnbpedia.in",
+          }),
+        });
+        console.log(`[Admin UTR Notification] Admin alert sent to ${adminRecipient} via Webhook.`);
+      }
+    } catch (err) {
+      console.error("[Admin UTR Notification Error]:", err.message);
+    }
+  }
+);
 

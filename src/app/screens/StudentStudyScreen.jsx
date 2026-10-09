@@ -23,7 +23,7 @@ export function StudentStudyScreen() {
   const [showFreeFirst, setShowFreeFirst] = useState(false);
   const [expandedQuestionId, setExpandedQuestionId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     if (selectedTopicFilter) {
@@ -174,31 +174,75 @@ export function StudentStudyScreen() {
             </React.Fragment>
           )) : <div className="text-center py-10 text-gray-400">No questions found.</div>}
       </div>
-      {!loading && filteredQuestions.length > itemsPerPage && (
-        <div className="flex items-center justify-center gap-2 sm:gap-3 mt-5 pb-4 pt-1 px-1">
-          <button
-            onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
-            disabled={currentPage === 1}
-            className="flex items-center justify-center gap-1 px-3 py-1.5 sm:px-3.5 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-gray-800 text-teal-700 dark:text-teal-300 border border-teal-200/80 dark:border-teal-800/60 shadow-sm hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:border-teal-300 dark:hover:border-teal-700 active:scale-95 disabled:opacity-40 disabled:pointer-events-none disabled:transform-none transition-all duration-150 cursor-pointer shrink-0 min-h-[36px]"
-            title="Previous Page"
-          >
-            <ChevronLeft size={16} className="stroke-[2.5]" />
-            <span className="hidden xs:inline sm:inline">Previous</span>
-          </button>
-
-          <div className="flex items-center justify-center px-3 py-1.5 rounded-xl bg-gray-100/90 dark:bg-gray-800/90 border border-gray-200/70 dark:border-gray-700/70 text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-300 shadow-inner">
-            <span>Page <strong className="font-extrabold text-teal-600 dark:text-teal-400">{currentPage}</strong> of <strong className="font-extrabold text-gray-900 dark:text-white">{totalPages}</strong></span>
+      {!loading && filteredQuestions.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 mt-5 mb-4 bg-gray-50/90 dark:bg-gray-800/80 rounded-xl border border-gray-200/70 dark:border-gray-700/70 text-xs shadow-xs">
+          {/* Items Per Page Selector */}
+          <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300 font-semibold">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">Show:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+            >
+              <option value={5}>5 / page</option>
+              <option value={10}>10 / page</option>
+              <option value={20}>20 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={999999}>All ({filteredQuestions.length})</option>
+            </select>
           </div>
 
-          <button
-            onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
-            disabled={currentPage === totalPages}
-            className="flex items-center justify-center gap-1 px-3 py-1.5 sm:px-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white shadow-md shadow-teal-600/20 dark:shadow-none active:scale-95 disabled:opacity-40 disabled:pointer-events-none disabled:transform-none transition-all duration-150 cursor-pointer shrink-0 min-h-[36px]"
-            title="Next Page"
-          >
-            <span className="hidden xs:inline sm:inline">Next</span>
-            <ChevronRight size={16} className="stroke-[2.5]" />
-          </button>
+          {/* Question Counter Indicator */}
+          <div className="text-[11px] text-gray-500 dark:text-gray-400 font-medium hidden sm:block">
+            Showing <span className="font-bold text-teal-600 dark:text-teal-400">{Math.min((currentPage - 1) * itemsPerPage + 1, filteredQuestions.length)}–{Math.min(currentPage * itemsPerPage, filteredQuestions.length)}</span> of <span className="font-bold text-gray-800 dark:text-gray-200">{filteredQuestions.length}</span>
+          </div>
+
+          {/* Navigation & Direct Jump Selector */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+              <button
+                type="button"
+                onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
+                disabled={currentPage === 1}
+                className="flex items-center justify-center p-1.5 sm:px-2.5 rounded-lg font-bold text-xs bg-white dark:bg-gray-700 text-teal-700 dark:text-teal-300 border border-teal-200/80 dark:border-teal-800/60 shadow-xs hover:bg-teal-50 dark:hover:bg-teal-950/40 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft size={15} />
+                <span className="hidden sm:inline ml-0.5">Prev</span>
+              </button>
+
+              {/* Direct Jump Page Selector */}
+              <div className="flex items-center gap-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-0.5 shadow-xs">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">Page</span>
+                <select
+                  value={currentPage}
+                  onChange={(e) => handlePageChange(Number(e.target.value))}
+                  className="bg-transparent font-extrabold text-teal-600 dark:text-teal-400 text-xs focus:outline-none cursor-pointer py-0.5"
+                >
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <option key={p} value={p} className="bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100">
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-gray-400 font-medium">/ {totalPages}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="flex items-center justify-center p-1.5 sm:px-2.5 rounded-lg font-bold text-xs bg-gradient-to-r from-teal-600 to-teal-700 text-white shadow-xs hover:from-teal-700 hover:to-teal-800 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
+                title="Next Page"
+              >
+                <span className="hidden sm:inline mr-0.5">Next</span>
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

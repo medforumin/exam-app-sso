@@ -3,7 +3,8 @@ import {
   Crown, Save, Plus, X, Search, ChevronLeft, ChevronRight, Megaphone, Sparkles,
   Layout, BookOpen, ChevronUp, ChevronDown, Trash2, Bold, Italic, Underline, Heading2,
   Heading3, Heading4, List, ListOrdered, Image as ImageIcon, Eraser, Code, Info, Eye,
-  Globe, Laptop, Smartphone, Table, Type, Highlighter, ShieldCheck, CreditCard
+  Globe, Laptop, Smartphone, Table, Type, Highlighter, ShieldCheck, CreditCard,
+  ListChecks, AlertTriangle, Layers, Download, Upload, GripVertical
 } from 'lucide-react';
 import { SafeHtmlContent } from './SafeHtmlContent';
 import { useAppContext } from '../context/AppContext';
@@ -328,6 +329,18 @@ export function AdminPanel() {
   const [showTeaserPreview, setShowTeaserPreview] = useState(false);
   const itemsPerPage = 10;
 
+  // Phase 1: Bulk Add Modal & Unassigned Tracker State
+  const [bulkModalChapter, setBulkModalChapter] = useState(null);
+  const [bulkSelectedQIds, setBulkSelectedQIds] = useState([]);
+  const [bulkSearchTerm, setBulkSearchTerm] = useState('');
+  const [bulkFilterMode, setBulkFilterMode] = useState('unassigned');
+
+  // Phase 3: Drag & Drop & JSON Import/Export State
+  const importFileRef = useRef(null);
+  const [draggedTopicIndex, setDraggedTopicIndex] = useState(null);
+  const [draggedChapterInfo, setDraggedChapterInfo] = useState(null); // { topic, chapterIndex }
+  const [draggedQInfo, setDraggedQInfo] = useState(null); // { topic, chapterId, qIndex }
+
   useEffect(() => setAnnouncementText(announcement || ''), [announcement]);
   useEffect(() => setTeaserQCountText(teaserQuestionCount || '500+'), [teaserQuestionCount]);
   useEffect(() => setTeaserText(teaser || ''), [teaser]);
@@ -407,7 +420,14 @@ export function AdminPanel() {
 
   const handleAddChapter = (topic) => {
     if (!newChapterName[topic]) return;
-    const newChapter = { id: 'chap_' + Date.now(), name: newChapterName[topic], questionIds: [] };
+    const newChapter = {
+      id: 'chap_' + Date.now(),
+      name: newChapterName[topic],
+      questionIds: [],
+      yieldLevel: 'standard',
+      estTime: '',
+      isDraft: false
+    };
     setLocalCurriculum(prev => ({ ...prev, [topic]: [...(prev[topic] || []), newChapter] }));
     setNewChapterName(prev => ({ ...prev, [topic]: '' }));
   };
@@ -415,6 +435,13 @@ export function AdminPanel() {
   const handleDeleteChapter = (topic, chapterId) => {
     if (!confirm('Delete this chapter?')) return;
     setLocalCurriculum(prev => ({ ...prev, [topic]: (prev[topic] || []).filter(c => c.id !== chapterId) }));
+  };
+
+  const handleUpdateChapterMeta = (topic, chapterId, field, value) => {
+    setLocalCurriculum(prev => ({
+      ...prev,
+      [topic]: (prev[topic] || []).map(chap => chap.id === chapterId ? { ...chap, [field]: value } : chap)
+    }));
   };
 
   const handleAddQuestionToChapter = (topic, chapterId) => {
@@ -448,6 +475,157 @@ export function AdminPanel() {
         return { ...chap, questionIds: newQIds };
       })
     }));
+  };
+
+  // Phase 1: Bulk Add & Unassigned Helpers
+  const handleOpenBulkModal = (topic, chapterId, chapterName) => {
+    setBulkModalChapter({ topic, chapterId, chapterName });
+    setBulkSelectedQIds([]);
+    setBulkSearchTerm('');
+    setBulkFilterMode('unassigned');
+  };
+
+  const handleConfirmBulkAdd = () => {
+    if (!bulkModalChapter || bulkSelectedQIds.length === 0) return;
+    const { topic, chapterId } = bulkModalChapter;
+    setLocalCurriculum(prev => ({
+      ...prev,
+      [topic]: (prev[topic] || []).map(chap => {
+        if (chap.id !== chapterId) return chap;
+        const existingSet = new Set(chap.questionIds || []);
+        const toAdd = bulkSelectedQIds.filter(id => !existingSet.has(id));
+        return { ...chap, questionIds: [...chap.questionIds, ...toAdd] };
+      })
+    }));
+    setBulkModalChapter(null);
+    setBulkSelectedQIds([]);
+  };
+
+  const getTopicQuestionStats = (topic) => {
+    const topicQuestions = questions.filter(q => q.topic === topic);
+    const topicChapters = localCurriculum[topic] || [];
+    const assignedQIds = new Set(topicChapters.flatMap(c => c.questionIds || []));
+    const unassignedCount = topicQuestions.filter(q => !assignedQIds.has(q.id)).length;
+    return {
+      total: topicQuestions.length,
+      assignedCount: assignedQIds.size,
+      unassignedCount,
+      chaptersCount: topicChapters.length
+    };
+  };
+
+  const overallCurriculumStats = React.useMemo(() => {
+    const allAssignedQIds = new Set();
+    let totalChaptersCount = 0;
+    Object.entries(localCurriculum).forEach(([key, chapters]) => {
+      if (key === '_sectionOrder') return;
+      if (Array.isArray(chapters)) {
+        chapters.forEach(c => {
+          totalChaptersCount += 1;
+          (c.questionIds || []).forEach(id => allAssignedQIds.add(id));
+        });
+      }
+    });
+    const totalQsCount = questions.length;
+    const unassignedQsCount = questions.filter(q => !allAssignedQIds.has(q.id)).length;
+    return {
+      totalChapters: totalChaptersCount,
+      totalAssigned: allAssignedQIds.size,
+      totalUnassigned: unassignedQsCount,
+      totalQuestions: totalQsCount
+    };
+  }, [localCurriculum, questions]);
+
+  // Phase 3: JSON Export & Import Helpers
+  const handleExportCurriculumJSON = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localCurriculum, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `pediaq_curriculum_backup_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (err) {
+      alert("Error exporting JSON: " + err.message);
+    }
+  };
+
+  const handleImportCurriculumJSON = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        if (typeof parsed === 'object' && parsed !== null) {
+          setLocalCurriculum(parsed);
+          alert('Curriculum map loaded successfully! Click "Save Map" to commit changes to database.');
+        } else {
+          alert('Invalid JSON curriculum file structure.');
+        }
+      } catch (err) {
+        alert('Error parsing JSON file: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Phase 3: Drag & Drop Handlers
+  const handleTopicDragStart = (e, index) => {
+    setDraggedTopicIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleTopicDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedTopicIndex === null || draggedTopicIndex === targetIndex) return;
+    const ordered = getOrderedTopics();
+    const newOrder = [...ordered];
+    const [moved] = newOrder.splice(draggedTopicIndex, 1);
+    newOrder.splice(targetIndex, 0, moved);
+    setLocalCurriculum(prev => ({ ...prev, _sectionOrder: newOrder }));
+    setDraggedTopicIndex(null);
+  };
+
+  const handleChapterDragStart = (e, topic, chapterIndex) => {
+    setDraggedChapterInfo({ topic, chapterIndex });
+    e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
+  };
+  const handleChapterDrop = (e, topic, targetChapterIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggedChapterInfo || draggedChapterInfo.topic !== topic || draggedChapterInfo.chapterIndex === targetChapterIndex) return;
+    setLocalCurriculum(prev => {
+      const chapters = [...(prev[topic] || [])];
+      const [moved] = chapters.splice(draggedChapterInfo.chapterIndex, 1);
+      chapters.splice(targetChapterIndex, 0, moved);
+      return { ...prev, [topic]: chapters };
+    });
+    setDraggedChapterInfo(null);
+  };
+
+  const handleQDragStart = (e, topic, chapterId, qIndex) => {
+    setDraggedQInfo({ topic, chapterId, qIndex });
+    e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
+  };
+  const handleQDrop = (e, topic, chapterId, targetQIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggedQInfo || draggedQInfo.chapterId !== chapterId || draggedQInfo.qIndex === targetQIndex) return;
+    setLocalCurriculum(prev => ({
+      ...prev,
+      [topic]: (prev[topic] || []).map(chap => {
+        if (chap.id !== chapterId) return chap;
+        const qIds = [...chap.questionIds];
+        const [moved] = qIds.splice(draggedQInfo.qIndex, 1);
+        qIds.splice(targetQIndex, 0, moved);
+        return { ...chap, questionIds: qIds };
+      })
+    }));
+    setDraggedQInfo(null);
   };
 
   const getOrderedTopics = () => {
@@ -564,27 +742,90 @@ export function AdminPanel() {
 
       {activeTab === 'curriculum' && (
         <div className="space-y-4 animate-in fade-in zoom-in-95 pb-10">
-          <div className="flex justify-between items-center bg-teal-50 dark:bg-teal-900/20 p-4 rounded-lg border border-teal-200 dark:border-teal-800">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-teal-50 dark:bg-teal-900/20 p-4 rounded-lg border border-teal-200 dark:border-teal-800">
             <div>
               <h3 className="font-bold text-teal-800 dark:text-teal-200 flex items-center gap-2"><Layout size={18} /> Curriculum Builder</h3>
               <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">Organize questions into chapters to create a structured study plan.</p>
+              <div className="flex items-center gap-3 mt-2 text-xs font-semibold text-teal-700 dark:text-teal-300 flex-wrap">
+                <span className="flex items-center gap-1"><BookOpen size={12} /> {overallCurriculumStats.totalChapters} Chapters</span>
+                <span>•</span>
+                <span>{overallCurriculumStats.totalAssigned} / {overallCurriculumStats.totalQuestions} Questions Assigned</span>
+                {overallCurriculumStats.totalUnassigned > 0 ? (
+                  <span className="bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full text-[11px] font-extrabold flex items-center gap-1">
+                    <AlertTriangle size={11} /> {overallCurriculumStats.totalUnassigned} Unassigned
+                  </span>
+                ) : (
+                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full text-[11px] font-extrabold">
+                    100% Assigned ✅
+                  </span>
+                )}
+              </div>
             </div>
-            <button onClick={() => saveCurriculumMap(localCurriculum)} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm shrink-0"><Save size={16} /> Save Map</button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <input
+                type="file"
+                ref={importFileRef}
+                accept=".json"
+                onChange={handleImportCurriculumJSON}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => importFileRef.current?.click()}
+                className="bg-white dark:bg-gray-700 hover:bg-gray-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Import curriculum backup file"
+              >
+                <Upload size={14} /> Import JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCurriculumJSON}
+                className="bg-white dark:bg-gray-700 hover:bg-gray-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Export curriculum backup file"
+              >
+                <Download size={14} /> Export JSON
+              </button>
+              <button onClick={() => saveCurriculumMap(localCurriculum)} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm shrink-0 cursor-pointer"><Save size={16} /> Save Map</button>
+            </div>
           </div>
 
           <div className="space-y-2">
             {getOrderedTopics().map((topic, topicIndex, topicsArr) => {
               const isExpanded = expandedTopic === topic;
               const topicChapters = localCurriculum[topic] || [];
-              const topicQuestions = questions.filter(q => q.topic === topic);
+              const stats = getTopicQuestionStats(topic);
 
               return (
-                <div key={topic} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
+                <div
+                  key={topic}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleTopicDrop(e, topicIndex)}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-800 shadow-sm transition-all"
+                >
                   <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                    <button onClick={() => setExpandedTopic(isExpanded ? null : topic)} className="flex-1 p-4 flex justify-between items-center text-left">
-                      <span className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                        {topic} <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded-full">{topicChapters.length} Chapters</span>
-                      </span>
+                    <div
+                      draggable
+                      onDragStart={(e) => handleTopicDragStart(e, topicIndex)}
+                      className="p-3 cursor-grab active:cursor-grabbing text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 shrink-0"
+                      title="Drag to reorder section"
+                    >
+                      <GripVertical size={16} />
+                    </div>
+                    <button onClick={() => setExpandedTopic(isExpanded ? null : topic)} className="flex-1 py-4 pr-4 flex justify-between items-center text-left">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-gray-700 dark:text-gray-200">{topic}</span>
+                        <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded-full">{topicChapters.length} Chapters</span>
+                        <span className="text-xs text-gray-500 font-medium">({stats.assignedCount}/{stats.total} Qs)</span>
+                        {stats.unassignedCount > 0 ? (
+                          <span className="text-[11px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                            <AlertTriangle size={10} /> {stats.unassignedCount} Unassigned
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold">
+                            Done
+                          </span>
+                        )}
+                      </div>
                       {isExpanded ? <ChevronUp size={18} className="text-gray-500" /> : <ChevronDown size={18} className="text-gray-500" />}
                     </button>
                     <div className="flex items-center gap-1 pr-3 border-l border-gray-200 dark:border-gray-700 pl-2 shrink-0">
@@ -597,11 +838,75 @@ export function AdminPanel() {
                     <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-4 bg-white dark:bg-gray-800">
                       {topicChapters.length > 0 ? (
                         <div className="space-y-4">
-                          {topicChapters.map(chapter => (
-                            <div key={chapter.id} className="border border-indigo-100 dark:border-indigo-900/50 rounded-lg p-3 bg-indigo-50/30 dark:bg-indigo-900/10">
-                              <div className="flex justify-between items-center mb-3">
-                                <h4 className="font-bold text-indigo-800 dark:text-indigo-300 text-sm flex items-center gap-1"><BookOpen size={14} /> {chapter.name}</h4>
-                                <button onClick={() => handleDeleteChapter(topic, chapter.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+                          {topicChapters.map((chapter, chapIndex) => (
+                            <div
+                              key={chapter.id}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => handleChapterDrop(e, topic, chapIndex)}
+                              className="border border-indigo-100 dark:border-indigo-900/50 rounded-lg p-3 bg-indigo-50/30 dark:bg-indigo-900/10 transition-all"
+                            >
+                              {/* Chapter Header & Controls */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-indigo-100 dark:border-indigo-900/40">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    draggable
+                                    onDragStart={(e) => handleChapterDragStart(e, topic, chapIndex)}
+                                    className="cursor-grab active:cursor-grabbing text-indigo-400 hover:text-indigo-600 p-0.5"
+                                    title="Drag to reorder chapter"
+                                  >
+                                    <GripVertical size={14} />
+                                  </div>
+                                  <h4 className="font-bold text-indigo-900 dark:text-indigo-200 text-sm flex items-center gap-1.5">
+                                    <BookOpen size={14} className="text-indigo-600" />
+                                    {chapter.name}
+                                  </h4>
+                                </div>
+
+                                {/* Metadata Settings */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {/* Yield Level */}
+                                  <select
+                                    value={chapter.yieldLevel || 'standard'}
+                                    onChange={(e) => handleUpdateChapterMeta(topic, chapter.id, 'yieldLevel', e.target.value)}
+                                    className="text-[11px] font-extrabold border border-indigo-200 dark:border-indigo-800 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 dark:text-gray-200 cursor-pointer"
+                                  >
+                                    <option value="standard">Standard 📘</option>
+                                    <option value="high">High Yield 🌟</option>
+                                    <option value="bonus">Bonus 🎁</option>
+                                  </select>
+
+                                  {/* Est. Time */}
+                                  <input
+                                    type="text"
+                                    value={chapter.estTime || ''}
+                                    onChange={(e) => handleUpdateChapterMeta(topic, chapter.id, 'estTime', e.target.value)}
+                                    placeholder="Est. time (e.g. 30 mins)"
+                                    className="w-36 text-[11px] font-medium border border-indigo-200 dark:border-indigo-800 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 dark:text-gray-200 outline-none focus:ring-1 focus:ring-indigo-500"
+                                  />
+
+                                  {/* Draft Toggle */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateChapterMeta(topic, chapter.id, 'isDraft', !chapter.isDraft)}
+                                    className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition-all cursor-pointer ${
+                                      chapter.isDraft
+                                        ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300'
+                                        : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300'
+                                    }`}
+                                  >
+                                    {chapter.isDraft ? 'Draft 🟡 (Hidden)' : 'Published 🟢'}
+                                  </button>
+
+                                  {/* Delete */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteChapter(topic, chapter.id)}
+                                    className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/40 ml-1 transition-colors cursor-pointer"
+                                    title="Delete Chapter"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               </div>
 
                               {chapter.questionIds.length > 0 ? (
@@ -609,7 +914,20 @@ export function AdminPanel() {
                                   {chapter.questionIds.map((qId, index) => {
                                     const q = questions.find(qu => qu.id === qId);
                                     return (
-                                      <div key={qId} className="flex justify-between items-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded text-xs shadow-sm">
+                                      <div
+                                        key={qId}
+                                        onDragOver={(e) => e.preventDefault()}
+                                        onDrop={(e) => handleQDrop(e, topic, chapter.id, index)}
+                                        className="flex justify-between items-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2 rounded text-xs shadow-sm transition-all"
+                                      >
+                                        <div
+                                          draggable
+                                          onDragStart={(e) => handleQDragStart(e, topic, chapter.id, index)}
+                                          className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-indigo-600 pr-1.5 shrink-0"
+                                          title="Drag to reorder question"
+                                        >
+                                          <GripVertical size={14} />
+                                        </div>
                                         <div className="truncate pr-2 flex-1 text-gray-700 dark:text-gray-300 font-medium">
                                           <span className="text-gray-400 mr-2">{index + 1}.</span>
                                           {q ? q.questionText : <span className="text-red-500">Deleted Question (ID: {qId})</span>}
@@ -627,14 +945,15 @@ export function AdminPanel() {
                                 <div className="text-xs text-gray-400 dark:text-gray-500 mb-3 italic px-2">No questions assigned to this chapter yet.</div>
                               )}
 
-                              <div className="flex gap-2">
-                                <select className="flex-1 text-xs border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500" value={selectedQuestion[chapter.id] || ''} onChange={e => setSelectedQuestion(prev => ({ ...prev, [chapter.id]: e.target.value }))}>
+                              <div className="flex gap-2 flex-wrap items-center">
+                                <select className="flex-1 min-w-[200px] text-xs border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-700 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500" value={selectedQuestion[chapter.id] || ''} onChange={e => setSelectedQuestion(prev => ({ ...prev, [chapter.id]: e.target.value }))}>
                                   <option value="">-- Select a Question to Add --</option>
-                                  {topicQuestions.filter(q => !chapter.questionIds.includes(q.id)).map(q => (
+                                  {questions.filter(q => q.topic === topic && !chapter.questionIds.includes(q.id)).map(q => (
                                     <option key={q.id} value={q.id}>{q.questionText.substring(0, 70)}...</option>
                                   ))}
                                 </select>
-                                <button type="button" onClick={() => handleAddQuestionToChapter(topic, chapter.id)} disabled={!selectedQuestion[chapter.id]} className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-md text-xs font-bold hover:bg-indigo-200 disabled:opacity-50 flex items-center gap-1 shrink-0 transition-colors"><Plus size={14} /> Add</button>
+                                <button type="button" onClick={() => handleAddQuestionToChapter(topic, chapter.id)} disabled={!selectedQuestion[chapter.id]} className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-3 py-2 rounded-md text-xs font-bold hover:bg-indigo-200 disabled:opacity-50 flex items-center gap-1 shrink-0 transition-colors cursor-pointer"><Plus size={14} /> Add Single</button>
+                                <button type="button" onClick={() => handleOpenBulkModal(topic, chapter.id, chapter.name)} className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-md text-xs font-bold flex items-center gap-1 shrink-0 transition-colors shadow-xs cursor-pointer"><ListChecks size={14} /> Bulk Add Qs</button>
                               </div>
                             </div>
                           ))}
@@ -652,6 +971,206 @@ export function AdminPanel() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 1: Bulk Question Selector Modal */}
+      {bulkModalChapter && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-teal-50/50 dark:bg-teal-950/30">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-600 dark:text-teal-400">
+                  {bulkModalChapter.topic}
+                </span>
+                <h3 className="font-extrabold text-base sm:text-lg text-gray-900 dark:text-white flex items-center gap-1.5 leading-tight">
+                  <ListChecks size={20} className="text-teal-600" />
+                  Add Questions to <span className="text-teal-700 dark:text-teal-300 font-black">{bulkModalChapter.chapterName}</span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkModalChapter(null)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Controls Bar */}
+            <div className="p-3 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800 space-y-2.5">
+              {/* Search */}
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={bulkSearchTerm}
+                  onChange={e => setBulkSearchTerm(e.target.value)}
+                  placeholder="Search topic questions..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 font-medium dark:text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              {/* Filter Pills & Select All */}
+              <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setBulkFilterMode('unassigned')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      bulkFilterMode === 'unassigned'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
+                    }`}
+                  >
+                    Unassigned Only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkFilterMode('all')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      bulkFilterMode === 'all'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
+                    }`}
+                  >
+                    All Topic Qs
+                  </button>
+                </div>
+
+                {/* Quick Select All */}
+                {(() => {
+                  const currentChap = (localCurriculum[bulkModalChapter.topic] || []).find(c => c.id === bulkModalChapter.chapterId);
+                  const existingSet = new Set(currentChap?.questionIds || []);
+                  const topicQuestions = questions.filter(q => q.topic === bulkModalChapter.topic);
+                  const allAssignedInTopic = new Set((localCurriculum[bulkModalChapter.topic] || []).flatMap(c => c.questionIds || []));
+
+                  const availableQs = topicQuestions.filter(q => {
+                    if (existingSet.has(q.id)) return false;
+                    if (bulkFilterMode === 'unassigned' && allAssignedInTopic.has(q.id)) return false;
+                    if (bulkSearchTerm.trim()) {
+                      return q.questionText.toLowerCase().includes(bulkSearchTerm.toLowerCase());
+                    }
+                    return true;
+                  });
+
+                  const allSelected = availableQs.length > 0 && availableQs.every(q => bulkSelectedQIds.includes(q.id));
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (allSelected) {
+                          setBulkSelectedQIds(prev => prev.filter(id => !availableQs.some(q => q.id === id)));
+                        } else {
+                          const newIds = new Set([...bulkSelectedQIds, ...availableQs.map(q => q.id)]);
+                          setBulkSelectedQIds(Array.from(newIds));
+                        }
+                      }}
+                      disabled={availableQs.length === 0}
+                      className="text-xs font-bold text-teal-700 dark:text-teal-300 hover:underline disabled:opacity-40 cursor-pointer"
+                    >
+                      {allSelected ? 'Deselect All' : `Select All (${availableQs.length})`}
+                    </button>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Checklist View */}
+            <div className="flex-1 p-3 overflow-y-auto space-y-2 max-h-[50vh]">
+              {(() => {
+                const currentChap = (localCurriculum[bulkModalChapter.topic] || []).find(c => c.id === bulkModalChapter.chapterId);
+                const existingSet = new Set(currentChap?.questionIds || []);
+                const topicQuestions = questions.filter(q => q.topic === bulkModalChapter.topic);
+                const allAssignedInTopic = new Set((localCurriculum[bulkModalChapter.topic] || []).flatMap(c => c.questionIds || []));
+
+                const filteredQs = topicQuestions.filter(q => {
+                  if (existingSet.has(q.id)) return false;
+                  if (bulkFilterMode === 'unassigned' && allAssignedInTopic.has(q.id)) return false;
+                  if (bulkSearchTerm.trim()) {
+                    return q.questionText.toLowerCase().includes(bulkSearchTerm.toLowerCase());
+                  }
+                  return true;
+                });
+
+                if (filteredQs.length === 0) {
+                  return (
+                    <div className="text-center py-10 text-gray-400 text-xs font-medium">
+                      No matching questions available to add.
+                    </div>
+                  );
+                }
+
+                return filteredQs.map(q => {
+                  const isChecked = bulkSelectedQIds.includes(q.id);
+                  const isGold = q.accessLevel === 'gold' || q.collection === 'questions_gold';
+
+                  return (
+                    <label
+                      key={q.id}
+                      onClick={() => {
+                        setBulkSelectedQIds(prev =>
+                          isChecked ? prev.filter(id => id !== q.id) : [...prev, q.id]
+                        );
+                      }}
+                      className={`flex items-start gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                        isChecked
+                          ? 'bg-teal-50/70 dark:bg-teal-950/50 border-teal-300 dark:border-teal-700 shadow-xs'
+                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-teal-200'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="mt-0.5 w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 dark:text-gray-100 line-clamp-2">
+                          {q.questionText}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border uppercase ${
+                            isGold
+                              ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                              : 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300'
+                          }`}>
+                            {isGold ? 'Gold' : 'Standard'}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/80 flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-gray-600 dark:text-gray-300">
+                {bulkSelectedQIds.length} questions selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkModalChapter(null)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmBulkAdd}
+                  disabled={bulkSelectedQIds.length === 0}
+                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white shadow-sm transition-all cursor-pointer"
+                >
+                  Add Selected ({bulkSelectedQIds.length})
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

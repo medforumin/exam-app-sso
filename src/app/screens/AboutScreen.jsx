@@ -13,17 +13,17 @@ export function AboutScreen() {
           </div>
           <h2 className="text-2xl font-black tracking-tight">PediaQ</h2>
           <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-semibold mt-2">
-            <span>Version 7.5</span>
+            <span>Version 8.0</span>
             <span>•</span>
-            <span>Updated September 2026</span>
+            <span>Updated October 2026</span>
           </div>
         </div>
 
-        {/* What's New in Version 7.5 Section */}
+        {/* What's New in Version 8.0 Section */}
         <section className="bg-gradient-to-br from-amber-50/80 via-orange-50/40 to-teal-50/80 dark:from-amber-950/30 dark:via-gray-800 dark:to-teal-950/20 border border-amber-200/80 dark:border-amber-800/50 p-5 rounded-2xl shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-2 text-base">
-              <Zap size={20} className="text-amber-500" /> What's New in Version 7.5
+              <Zap size={20} className="text-amber-500" /> What's New in Version 8.0
             </h3>
             <span className="text-[10px] font-black bg-amber-400 text-amber-950 px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
               Latest Upgrade
@@ -32,10 +32,24 @@ export function AboutScreen() {
 
           <div className="space-y-3 text-xs sm:text-sm text-gray-700 dark:text-gray-200">
             <div className="flex items-start gap-2.5">
+              <span className="text-base shrink-0 mt-0.5">🌐</span>
+              <div>
+                <strong className="text-gray-900 dark:text-white block font-bold">WordPress SSO & Auto-Login Bridge</strong>
+                Two-way Single Sign-On integration between PediaQ App and dnbpedia.in with single-use magic login links.
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <span className="text-base shrink-0 mt-0.5">👑</span>
+              <div>
+                <strong className="text-gray-900 dark:text-white block font-bold">PMPro Payment Plans Support</strong>
+                Universal support for custom membership subplans, dynamic durations, and real-time subscription sync.
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
               <span className="text-base shrink-0 mt-0.5">🔑</span>
               <div>
-                <strong className="text-gray-900 dark:text-white block font-bold">Google Registration / Sign In</strong>
-                Added Google Registration and 1-tap Sign In for fast, seamless, and secure authentication.
+                <strong className="text-gray-900 dark:text-white block font-bold">Google Registration & 1-Tap Sign In</strong>
+                Fast, seamless, and secure authentication with automated Cloud Function user provisioning.
               </div>
             </div>
           </div>

@@ -108,24 +108,10 @@ export function WelcomeScreen() {
                   </div>
                   <div>
                     <strong className="block text-xs font-bold text-emerald-950 dark:text-emerald-100">
-                      Comprehensive PYQ Repository
+                      Comprehensive Exam Repository & Chapterwise Study
                     </strong>
                     <span className="text-[11px] sm:text-xs text-emerald-800/90 dark:text-emerald-300/90 leading-tight block mt-0.5">
-                      Years of exit exam papers categorized by exam type, year, session, and paper number.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200/70 dark:border-teal-800/40 rounded-2xl p-3.5 flex items-start gap-3 shadow-xs">
-                  <div className="p-2 bg-teal-500 text-white rounded-xl font-bold shrink-0 shadow-xs text-xs">
-                    <Layout size={16} />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-teal-950 dark:text-teal-100">
-                      Structured Chapter-Wise Study
-                    </strong>
-                    <span className="text-[11px] sm:text-xs text-teal-800/90 dark:text-teal-300/90 leading-tight block mt-0.5">
-                      Organized curriculum map allowing topic-focused study sessions and targeted revision.
+                      Years of exit exam papers categorized by exam type, year, session, and paper number. Includes Nelson based Chapter wise structured preparation.
                     </span>
                   </div>
                 </div>
@@ -183,7 +169,7 @@ export function WelcomeScreen() {
 
               {/* Footer Metadata */}
               <p className="text-center text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">
-                Version 7.5 • Updated September 2026
+                Version 8.0 • Updated October 2026
               </p>
             </div>
           )}
@@ -389,7 +375,7 @@ export function WelcomeScreen() {
 
               {/* Footer Metadata */}
               <p className="text-center text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">
-                Version 7.5 • Updated September 2026
+                Version 8.0 • Updated October 2026
               </p>
 
             </div>
@@ -397,6 +383,6 @@ export function WelcomeScreen() {
 
         </div>
       </div>
-    </div>
+    </div >
   );
 }

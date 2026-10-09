@@ -20,13 +20,6 @@ import { getGoldStartAt } from '../utils/membershipSchema';
 export function ProfileScreen() {
   const { currentUser, setCurrentScreen, darkMode, setUserName, handleLogout, goBack, userRole, enableInAppUpiUpgrade } = useAppContext();
 
-  if (!currentUser || userRole === 'guest') {
-    return (
-      <RestrictedAccessWrapper title="My Profile">
-        <LoginRequiredView message="Please log in or create an account to view and manage your user profile and settings." />
-      </RestrictedAccessWrapper>
-    );
-  }
 
   const [formData, setFormData] = useState({
     name: currentUser?.displayName || '',
@@ -105,6 +98,14 @@ export function ProfileScreen() {
     fetchUserData();
     return () => { isMounted = false; };
   }, [currentUser, setUserName, userRole]);
+
+  if (!currentUser || userRole === 'guest') {
+    return (
+      <RestrictedAccessWrapper title="My Profile">
+        <LoginRequiredView message="Please log in or create an account to view and manage your user profile and settings." />
+      </RestrictedAccessWrapper>
+    );
+  }
 
   const formatDate = (val) => {
     if (!val) return 'N/A';
@@ -254,8 +255,8 @@ export function ProfileScreen() {
         <div className="flex-1 p-3 sm:p-6 md:p-8 space-y-3.5 sm:space-y-6 md:space-y-8 overflow-y-auto pb-24 max-w-full overflow-x-hidden animate-slide-in">
 
           {/* User Hero Banner */}
-          <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-transparent dark:from-teal-900/30 dark:via-emerald-900/15 p-3 sm:p-6 rounded-xl sm:rounded-2xl border border-teal-100 dark:border-teal-900/40 flex items-center justify-between gap-3 sm:gap-4">
-            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2.5 sm:gap-4 text-center sm:text-left min-w-0 w-full">
+          <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/5 to-transparent dark:from-teal-900/30 dark:via-emerald-900/15 p-3.5 sm:p-6 rounded-xl sm:rounded-2xl border border-teal-100 dark:border-teal-900/40 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2.5 sm:gap-4 text-center sm:text-left min-w-0 w-full sm:w-auto flex-1">
               <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-gradient-to-tr from-teal-600 to-emerald-500 text-white rounded-full flex items-center justify-center font-black text-lg sm:text-2xl md:text-3xl shadow-md sm:shadow-lg shadow-teal-500/20 shrink-0">
                 {(formData.name || currentUser?.email || 'U').charAt(0).toUpperCase()}
               </div>
@@ -282,6 +283,17 @@ export function ProfileScreen() {
                 </div>
               </div>
             </div>
+
+            {/* Slim Manage Membership at dnbpedia.in Button */}
+            <a
+              href="https://dnbpedia.in/membership-account/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 dark:bg-teal-600 dark:hover:bg-teal-500 text-white text-xs font-bold transition-all shadow-sm shrink-0 active:scale-95 group"
+            >
+              <span>View Membership at dnbpedia.in</span>
+              <ExternalLink size={13} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </a>
           </div>
 
           {/* Membership Details Card */}
@@ -323,7 +335,7 @@ export function ProfileScreen() {
                   </button>
                 ) : (
                   <a
-                    href="https://dnbpedia.in/membership-account/"
+                    href="https://dnbpedia.in/membership-levels/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl border transition-all shadow-sm ${isGold
@@ -478,8 +490,8 @@ export function ProfileScreen() {
             <div className="space-y-4 sm:space-y-8 animate-in fade-in">
 
               {ENABLE_FIREBASE && auth?.currentUser &&
-              !auth.currentUser.providerData?.some(p => p.providerId === 'password') &&
-              auth.currentUser.providerData?.some(p => p.providerId === 'google.com') ? (
+                !auth.currentUser.providerData?.some(p => p.providerId === 'password') &&
+                auth.currentUser.providerData?.some(p => p.providerId === 'google.com') ? (
                 <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 text-xs sm:text-sm text-blue-800 dark:text-blue-200 flex items-start gap-2.5 sm:gap-3">
                   <User size={18} className="sm:w-5 sm:h-5 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
                   <div>

@@ -6,15 +6,30 @@ import {
 import { useAppContext, db } from '../context/AppContext';
 import { UpiPaymentSection } from '../components/UpiPaymentSection';
 import { RestrictedAccessWrapper } from '../components/RestrictedAccessWrapper';
-import { collection, addDoc, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { showToast } from '../platform/native';
 
 export function UpgradeGoldScreen() {
   const { goBack, userRole, currentUser, membershipData, upiId: contextUpiId, payeeName: contextPayeeName, planRates } = useAppContext();
-  const [selectedPlanId, setSelectedPlanId] = useState('plan_3m');
+  const [selectedPlanId, setSelectedPlanId] = useState(() => {
+    try {
+      return localStorage.getItem('pediaq_selected_plan_id') || 'plan_3m';
+    } catch {
+      return 'plan_3m';
+    }
+  });
   const [agreedTerms, setAgreedTerms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(null);
+
+  const handleSelectPlan = (planId) => {
+    setSelectedPlanId(planId);
+    try {
+      localStorage.setItem('pediaq_selected_plan_id', planId);
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   const defaultPlans = [
     {
@@ -45,8 +60,8 @@ export function UpgradeGoldScreen() {
 
   const [plans, setPlans] = useState(defaultPlans);
   const [upiConfig, setUpiConfig] = useState({
-    upiId: contextUpiId || 'medforum@upi',
-    payeeName: contextPayeeName || 'MedForum Pediatrics'
+    upiId: contextUpiId || 'medforum@ybl',
+    payeeName: contextPayeeName || 'MEERA'
   });
 
   useEffect(() => {
@@ -55,18 +70,18 @@ export function UpgradeGoldScreen() {
 
   useEffect(() => {
     setUpiConfig({
-      upiId: contextUpiId || 'medforum@upi',
-      payeeName: contextPayeeName || 'MedForum Pediatrics'
+      upiId: contextUpiId || 'medforum@ybl',
+      payeeName: contextPayeeName || 'MEERA'
     });
   }, [contextUpiId, contextPayeeName]);
 
   const isGold = userRole === 'gold';
 
-  // Fetch live membership configuration and pending request status from Firestore
+  // Fetch live membership configuration
   useEffect(() => {
     let isMounted = true;
 
-    async function loadConfigAndStatus() {
+    async function loadConfig() {
       try {
         const configRef = doc(db, 'settings', 'membership_config');
         const configSnap = await getDoc(configRef);
@@ -82,27 +97,40 @@ export function UpgradeGoldScreen() {
             });
           }
         }
-
-        // Check if user has a pending verification request
-        if (currentUser && currentUser.uid) {
-          const reqQuery = query(
-            collection(db, 'membership_requests'),
-            where('userId', '==', currentUser.uid),
-            where('status', '==', 'pending_verification')
-          );
-          const reqSnap = await getDocs(reqQuery);
-          if (!reqSnap.empty && isMounted) {
-            const firstReq = reqSnap.docs[0].data();
-            setPendingRequest({ id: reqSnap.docs[0].id, ...firstReq });
-          }
-        }
       } catch (err) {
-        console.warn('Failed to fetch membership config or status:', err);
+        console.warn('Failed to fetch membership config:', err);
       }
     }
 
-    loadConfigAndStatus();
+    loadConfig();
     return () => { isMounted = false; };
+  }, []);
+
+  // Real-time listener for pending verification request status
+  useEffect(() => {
+    if (!currentUser || !currentUser.uid) {
+      setPendingRequest(null);
+      return;
+    }
+
+    const reqQuery = query(
+      collection(db, 'membership_requests'),
+      where('userId', '==', currentUser.uid),
+      where('status', '==', 'pending_verification')
+    );
+
+    const unsubscribe = onSnapshot(reqQuery, (reqSnap) => {
+      if (!reqSnap.empty) {
+        const firstReq = reqSnap.docs[0].data();
+        setPendingRequest({ id: reqSnap.docs[0].id, ...firstReq });
+      } else {
+        setPendingRequest(null);
+      }
+    }, (err) => {
+      console.warn('Error listening to membership requests:', err);
+    });
+
+    return () => unsubscribe();
   }, [currentUser]);
 
   const selectedPlan = plans.find(p => p.id === selectedPlanId) || plans[0] || defaultPlans[0];
@@ -139,7 +167,6 @@ export function UpgradeGoldScreen() {
 
       const docRef = await addDoc(collection(db, 'membership_requests'), requestData);
       setPendingRequest({ id: docRef.id, ...requestData });
-      showToast('Payment reference submitted successfully for Admin verification!');
       setIsSubmitting(false);
       return true;
     } catch (err) {
@@ -195,7 +222,7 @@ export function UpgradeGoldScreen() {
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => setSelectedPlanId(p.id)}
+                  onClick={() => handleSelectPlan(p.id)}
                   className={`p-4 rounded-2xl border transition-all text-left relative flex flex-col justify-between ${isSelected
                       ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-500 dark:border-amber-600 ring-2 ring-amber-500/50 shadow-md'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
