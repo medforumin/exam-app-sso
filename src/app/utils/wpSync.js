@@ -26,6 +26,12 @@ export async function syncUserToWordPressREST(user, forceSync = false) {
     return { skipped: true, reason: 'Feature disabled or invalid user' };
   }
 
+  // Strict Email Verification Check: Only sync/create WP accounts for verified users
+  if (!user.emailVerified) {
+    console.log('[WPSync] Skipping WP REST sync: email is not verified yet.');
+    return { skipped: true, reason: 'Email not verified' };
+  }
+
   const cacheKey = `wp_synced_${user.uid}`;
   const isAlreadySynced = localStorage.getItem(cacheKey) === 'true';
 
@@ -34,7 +40,8 @@ export async function syncUserToWordPressREST(user, forceSync = false) {
   }
 
   try {
-    const idToken = await user.getIdToken(/* forceRefresh */ false);
+    // Force-refresh the token to ensure the latest email_verified claim is present in the JWT
+    const idToken = await user.getIdToken(/* forceRefresh */ true);
     if (!idToken) {
       console.warn('[WPSync] Failed to obtain Firebase ID token.');
       return { success: false, error: 'No ID Token' };
@@ -128,12 +135,20 @@ export async function openWordPressWithAutoLogin(targetPath = '/') {
     return;
   }
 
+  // Strict Email Verification Guard for SSO Login
+  if (!currentUser.emailVerified) {
+    console.warn('[WP SSO] Blocked SSO: user email is not verified yet.');
+    alert('Please verify your email address to access your WordPress account and memberships.');
+    return;
+  }
+
   isSSOInProgress = true;
   setSSOLoadingState(true);
 
   try {
     console.log('[WP SSO] Fetching fresh ID Token for', currentUser.email);
-    const idToken = await currentUser.getIdToken(/* forceRefresh */ false);
+    // Force-refresh the token to guarantee the freshly verified status is embedded in the JWT claims
+    const idToken = await currentUser.getIdToken(/* forceRefresh */ true);
     if (!idToken) {
       throw new Error('No Firebase ID Token available for SSO');
     }

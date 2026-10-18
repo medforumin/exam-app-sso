@@ -2,7 +2,7 @@
 
 export const ENABLE_FIREBASE = true; // set to false to run without firebase
 export const WP_SITE_URL = "https://dnbpedia.in";
-export const ENABLE_WP_REST_SYNC = false; // Backup Token REST API sync (inactive by default)
+export const ENABLE_WP_REST_SYNC = false; // Token REST API user sync active for verified users
 
 export const firebaseConfig = {
   apiKey: "AIzaSyC-qVqLhxs8EbC1CpB-t5Wa7ZDMKJ8pU64",

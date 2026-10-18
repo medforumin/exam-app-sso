@@ -2,7 +2,7 @@
 /**
  * Plugin Name: DNBPedia PYQ User Sync & SSO
  * Description: Two-way SSO magic link authentication & real-time PMPro membership duration synchronization between WordPress and Pediatrics PYQ App.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Dr. Mradul with Antigravity
  */
 
@@ -34,6 +34,110 @@ add_action('rest_api_init', function () {
         },
     ));
 });
+
+/**
+ * Verifies a Firebase ID Token (JWT) by checking the RS256 signature against
+ * Google's published JWKS public keys. Public keys are cached in a WP transient
+ * for up to 1 hour (respecting Cache-Control max-age from Google's response).
+ *
+ * This is the ONLY safe way to authenticate a Firebase token in PHP without
+ * the Firebase Admin SDK. A plain base64-decode is NOT sufficient.
+ *
+ * @param  string $id_token  Raw Firebase ID Token from the Authorization: Bearer header
+ * @return array             On success: ['payload' => $claims_array]
+ *                           On failure: ['error'   => 'reason string']
+ */
+function pyq_verify_firebase_jwt($id_token)
+{
+    $project_id = 'dnbpediain';
+
+    // 1. Split the three JWT segments
+    $parts = explode('.', trim($id_token));
+    if (count($parts) !== 3) {
+        return array('error' => 'Malformed JWT: expected 3 segments');
+    }
+
+    // 2. Decode & validate the header
+    $header = json_decode(
+        base64_decode(str_pad(str_replace(array('-', '_'), array('+', '/'), $parts[0]), strlen($parts[0]) % 4 === 0 ? strlen($parts[0]) : strlen($parts[0]) + (4 - strlen($parts[0]) % 4), '=', STR_PAD_RIGHT)),
+        true
+    );
+    if (!$header || ($header['alg'] ?? '') !== 'RS256' || empty($header['kid'])) {
+        return array('error' => 'Invalid JWT header: must be RS256 with a kid');
+    }
+    $kid = $header['kid'];
+
+    // 3. Decode the payload (claims)
+    $payload = json_decode(
+        base64_decode(str_pad(str_replace(array('-', '_'), array('+', '/'), $parts[1]), strlen($parts[1]) % 4 === 0 ? strlen($parts[1]) : strlen($parts[1]) + (4 - strlen($parts[1]) % 4), '=', STR_PAD_RIGHT)),
+        true
+    );
+    if (!$payload) {
+        return array('error' => 'Invalid JWT payload: JSON decode failed');
+    }
+
+    // 4. Standard claims validation (before touching the network)
+    $now = time();
+    if (
+        ($payload['iss'] ?? '') !== "https://securetoken.google.com/{$project_id}" ||
+        ($payload['aud'] ?? '') !== $project_id ||
+        ($payload['exp'] ?? 0) < $now ||
+        ($payload['iat'] ?? 0) > ($now + 300) || // 5-min clock-skew tolerance
+        empty($payload['sub'])
+    ) {
+        return array('error' => 'Invalid JWT claims (iss/aud/exp/iat/sub)');
+    }
+
+    // 5. Fetch Google JWKS public keys (X.509 certs), cached by WP transient
+    $cache_key   = 'pyq_google_firebase_jwks';
+    $public_keys = get_transient($cache_key);
+
+    if (!$public_keys) {
+        $response = wp_remote_get(
+            'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com',
+            array('timeout' => 10, 'sslverify' => true)
+        );
+        if (is_wp_error($response)) {
+            return array('error' => 'Failed to fetch Google public keys: ' . $response->get_error_message());
+        }
+        $public_keys = json_decode(wp_remote_retrieve_body($response), true);
+        if (empty($public_keys)) {
+            return array('error' => 'Empty or invalid response from Google JWKS endpoint');
+        }
+
+        // Respect Google's Cache-Control max-age (default 1 h if header missing)
+        $cache_ttl    = 3600;
+        $cc_header    = wp_remote_retrieve_header($response, 'cache-control');
+        if ($cc_header && preg_match('/max-age=(\d+)/', $cc_header, $m)) {
+            $cache_ttl = min((int) $m[1], 3600);
+        }
+        set_transient($cache_key, $public_keys, $cache_ttl);
+    }
+
+    // 6. Locate the matching public key for this token's kid
+    if (!isset($public_keys[$kid])) {
+        // Key not in cache — delete cache and return error (Google may have rotated keys)
+        delete_transient($cache_key);
+        return array('error' => "JWT kid '{$kid}' not found in Google public keys");
+    }
+
+    // 7. Verify the RS256 signature using the X.509 certificate
+    $signing_input = $parts[0] . '.' . $parts[1];
+    $signature     = base64_decode(str_pad(str_replace(array('-', '_'), array('+', '/'), $parts[2]), strlen($parts[2]) % 4 === 0 ? strlen($parts[2]) : strlen($parts[2]) + (4 - strlen($parts[2]) % 4), '=', STR_PAD_RIGHT));
+    $public_key    = openssl_pkey_get_public($public_keys[$kid]);
+
+    if (!$public_key) {
+        return array('error' => 'Failed to parse Google public key for kid: ' . $kid);
+    }
+
+    $verified = openssl_verify($signing_input, $signature, $public_key, OPENSSL_ALGO_SHA256);
+
+    if ($verified !== 1) {
+        return array('error' => 'JWT RS256 signature verification failed — token is invalid or forged');
+    }
+
+    return array('payload' => $payload);
+}
 
 /**
  * Helper function to update WP and PMPro User Name & Meta fields
@@ -93,9 +197,14 @@ function pyq_server_create_user_callback($request)
     $name = sanitize_text_field($params['name'] ?? '');
     $username = sanitize_user($params['username'] ?? '');
     $uid = sanitize_text_field($params['uid'] ?? '');
+    $email_verified = !empty($params['email_verified']);
 
     if (empty($email) || !is_email($email)) {
         return new WP_Error('invalid_email', 'Invalid Email', array('status' => 400));
+    }
+
+    if (!$email_verified && !email_exists($email)) {
+        return new WP_Error('email_not_verified', 'User email must be verified before account creation.', array('status' => 400));
     }
 
     if (email_exists($email)) {
@@ -109,7 +218,13 @@ function pyq_server_create_user_callback($request)
         return array('success' => true, 'message' => 'User already exists, updated name/uid', 'wp_user_id' => $existing_user->ID);
     }
 
-    $user_id = wp_create_user($username, wp_generate_password(18, true), $email);
+    $final_username = $username;
+    $i = 1;
+    while (username_exists($final_username)) {
+        $final_username = $username . $i++;
+    }
+
+    $user_id = wp_create_user($final_username, wp_generate_password(18, true), $email);
     if (is_wp_error($user_id))
         return $user_id;
 
@@ -133,19 +248,15 @@ function pyq_handle_firebase_token_sync($request)
     }
 
     $id_token = $matches[1];
-    $project_id = 'dnbpediain';
 
-    $token_parts = explode('.', $id_token);
-    if (count($token_parts) !== 3) {
-        return new WP_Error('invalid_token', 'Malformed JWT token', array('status' => 400));
+    // SECURE JWT VERIFICATION: Validates RS256 signature against Google's JWKS public keys.
+    // This replaces the previous insecure bare base64-decode which did NOT verify the signature.
+    $jwt_result = pyq_verify_firebase_jwt($id_token);
+    if (isset($jwt_result['error'])) {
+        error_log('[PYQ SSO] JWT verification failed: ' . $jwt_result['error']);
+        return new WP_Error('invalid_token', $jwt_result['error'], array('status' => 403));
     }
-
-    $payload = json_decode(base64_decode(str_replace(array('-', '_'), array('+', '/'), $token_parts[1])), true);
-    $now = time();
-
-    if (!$payload || $payload['iss'] !== "https://securetoken.google.com/" . $project_id || $payload['aud'] !== $project_id || $payload['exp'] < $now) {
-        return new WP_Error('invalid_token_claims', 'Invalid Token Claims', array('status' => 403));
-    }
+    $payload = $jwt_result['payload'];
 
     $email = sanitize_email($payload['email'] ?? '');
     $uid = sanitize_text_field($payload['sub'] ?? '');
@@ -156,6 +267,12 @@ function pyq_handle_firebase_token_sync($request)
 
     if (empty($email)) {
         return new WP_Error('no_email', 'Email not found in token payload', array('status' => 400));
+    }
+
+    // STRICT EMAIL VERIFICATION GUARD:
+    // If the user does not exist in WordPress yet, refuse to create an account until email is verified!
+    if (!$email_verified && !email_exists($email)) {
+        return new WP_Error('email_not_verified', 'Email verification required in Firebase Auth before creating WordPress account.', array('status' => 403));
     }
 
     if (email_exists($email)) {
@@ -341,25 +458,31 @@ function pyq_sync_gold_membership_to_firestore($user_id, $order = null)
         // C) Extract duration from Payment Plan object properties
         if (!empty($plan)) {
             if (!empty($plan->expiration_number) && !empty($plan->expiration_period)) {
-                $p_num = (int)$plan->expiration_number;
+                $p_num = (int) $plan->expiration_number;
                 $p_per = strtolower($plan->expiration_period);
-                if ($p_per === 'month' || $p_per === 'months') $duration_months = max(1, $p_num);
-                else if ($p_per === 'year' || $p_per === 'years') $duration_months = max(1, $p_num * 12);
-                else if ($p_per === 'week' || $p_per === 'weeks') $duration_months = max(1, (int)round($p_num / 4));
-                else if ($p_per === 'day' || $p_per === 'days') $duration_months = max(1, (int)round($p_num / 30));
+                if ($p_per === 'month' || $p_per === 'months')
+                    $duration_months = max(1, $p_num);
+                else if ($p_per === 'year' || $p_per === 'years')
+                    $duration_months = max(1, $p_num * 12);
+                else if ($p_per === 'week' || $p_per === 'weeks')
+                    $duration_months = max(1, (int) round($p_num / 4));
+                else if ($p_per === 'day' || $p_per === 'days')
+                    $duration_months = max(1, (int) round($p_num / 30));
             }
             if ($duration_months === 0 && !empty($plan->cycle_number) && !empty($plan->cycle_period)) {
-                $c_num = (int)$plan->cycle_number;
+                $c_num = (int) $plan->cycle_number;
                 $c_per = strtolower($plan->cycle_period);
-                if ($c_per === 'month' || $c_per === 'months') $duration_months = max(1, $c_num);
-                else if ($c_per === 'year' || $c_per === 'years') $duration_months = max(1, $c_num * 12);
+                if ($c_per === 'month' || $c_per === 'months')
+                    $duration_months = max(1, $c_num);
+                else if ($c_per === 'year' || $c_per === 'years')
+                    $duration_months = max(1, $c_num * 12);
             }
             if ($duration_months === 0 && (!empty($plan->name) || !empty($plan->title))) {
                 $p_title = !empty($plan->name) ? $plan->name : $plan->title;
                 if (preg_match('/\b(\d+)\s*(year|yr|y)\b/i', $p_title, $m)) {
-                    $duration_months = (int)$m[1] * 12;
+                    $duration_months = (int) $m[1] * 12;
                 } else if (preg_match('/\b(\d+)\s*(month|mth|mo|m)\b/i', $p_title, $m)) {
-                    $duration_months = (int)$m[1];
+                    $duration_months = (int) $m[1];
                 }
             }
         }
@@ -368,33 +491,35 @@ function pyq_sync_gold_membership_to_firestore($user_id, $order = null)
     // 2. Native Order Expiration properties
     if ($duration_months === 0 && !empty($order)) {
         if (!empty($order->expiration_number) && !empty($order->expiration_period)) {
-            $o_num = (int)$order->expiration_number;
+            $o_num = (int) $order->expiration_number;
             $o_per = strtolower($order->expiration_period);
-            if ($o_per === 'month' || $o_per === 'months') $duration_months = max(1, $o_num);
-            else if ($o_per === 'year' || $o_per === 'years') $duration_months = max(1, $o_num * 12);
+            if ($o_per === 'month' || $o_per === 'months')
+                $duration_months = max(1, $o_num);
+            else if ($o_per === 'year' || $o_per === 'years')
+                $duration_months = max(1, $o_num * 12);
         }
     }
 
     // 3. Native PMPro Level Expiration properties
     if ($duration_months === 0 && !empty($membership_level->expiration_number) && !empty($membership_level->expiration_period)) {
-        $num = (int)$membership_level->expiration_number;
+        $num = (int) $membership_level->expiration_number;
         $period = strtolower($membership_level->expiration_period);
         if ($period === 'month' || $period === 'months') {
             $duration_months = max(1, $num);
         } else if ($period === 'year' || $period === 'years') {
             $duration_months = max(1, $num * 12);
         } else if ($period === 'week' || $period === 'weeks') {
-            $duration_months = max(1, (int)round($num / 4));
+            $duration_months = max(1, (int) round($num / 4));
         } else if ($period === 'day' || $period === 'days') {
-            $duration_months = max(1, (int)round($num / 30));
+            $duration_months = max(1, (int) round($num / 30));
         }
     }
 
     // 4. Enddate difference calculation
     if ($duration_months === 0 && !empty($membership_level->enddate)) {
-        $end_timestamp = is_numeric($membership_level->enddate) ? (int)$membership_level->enddate : strtotime($membership_level->enddate);
+        $end_timestamp = is_numeric($membership_level->enddate) ? (int) $membership_level->enddate : strtotime($membership_level->enddate);
         $diff_seconds = max(0, $end_timestamp - time());
-        $calculated_months = (int)round($diff_seconds / (30 * 24 * 3600));
+        $calculated_months = (int) round($diff_seconds / (30 * 24 * 3600));
         if ($calculated_months > 0) {
             $duration_months = $calculated_months;
         }
@@ -403,9 +528,9 @@ function pyq_sync_gold_membership_to_firestore($user_id, $order = null)
     // 5. Level Name Regex fallback
     if ($duration_months === 0 && !empty($level_name)) {
         if (preg_match('/\b(\d+)\s*(year|yr|y)\b/i', $level_name, $m)) {
-            $duration_months = (int)$m[1] * 12;
+            $duration_months = (int) $m[1] * 12;
         } else if (preg_match('/\b(\d+)\s*(month|mth|mo|m)\b/i', $level_name, $m)) {
-            $duration_months = (int)$m[1];
+            $duration_months = (int) $m[1];
         }
     }
 

@@ -27,7 +27,7 @@ This document serves as the complete technical specification and reference guide
                                          v
 +----------------------------------------+------------------------------------------+
 |                        WORDPRESS SITE (dnbpedia.in)                               |
-|                  Plugin: dnbpedia-pyq-sync.php (v2.0.0)                           |
+|                  Plugin: dnbpedia-pyq-sync.php (v2.1.0)                           |
 | - Validates single-use token pyq_sso_token                                       |
 | - Calls wp_set_auth_cookie($user_id) with official wp-config.php secret salts      |
 | - Redirects user logged-in seamlessly in Chrome/Safari                           |
@@ -105,7 +105,7 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
 
 ---
 
-## 4. WordPress Custom Plugin Code (`dnbpedia-pyq-sync.php` v2.0.0)
+## 4. WordPress Custom Plugin Code (`dnbpedia-pyq-sync.php` v2.1.0)
 
 Deploy this code to `/wp-content/plugins/dnbpedia-pyq-sync/dnbpedia-pyq-sync.php` on `https://dnbpedia.in`:
 
@@ -114,7 +114,7 @@ Deploy this code to `/wp-content/plugins/dnbpedia-pyq-sync/dnbpedia-pyq-sync.php
 /**
  * Plugin Name: DNBPedia PYQ User Sync & SSO
  * Description: Two-way SSO magic link authentication & real-time PMPro membership duration synchronization between WordPress and Pediatrics PYQ App.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Dr. Mradul with Antigravity
  */
 
@@ -199,9 +199,15 @@ function pyq_server_create_user_callback($request) {
     $email = sanitize_email($params['email'] ?? '');
     $name = sanitize_text_field($params['name'] ?? '');
     $username = sanitize_user($params['username'] ?? '');
+    $uid = sanitize_text_field($params['uid'] ?? '');
+    $email_verified = !empty($params['email_verified']);
 
     if (empty($email) || !is_email($email)) {
         return new WP_Error('invalid_email', 'Invalid Email', array('status' => 400));
+    }
+
+    if (!$email_verified && !email_exists($email)) {
+        return new WP_Error('email_not_verified', 'User email must be verified before account creation.', array('status' => 400));
     }
 
     if (email_exists($email)) {
@@ -209,7 +215,10 @@ function pyq_server_create_user_callback($request) {
         if (!empty($name)) {
             pyq_update_user_names($existing_user->ID, $name);
         }
-        return array('success' => true, 'message' => 'User already exists, updated name', 'wp_user_id' => $existing_user->ID);
+        if (!empty($uid)) {
+            update_user_meta($existing_user->ID, 'firebase_uid', $uid);
+        }
+        return array('success' => true, 'message' => 'User already exists, updated name/uid', 'wp_user_id' => $existing_user->ID);
     }
 
     $user_id = wp_create_user($username, wp_generate_password(18, true), $email);
@@ -219,6 +228,9 @@ function pyq_server_create_user_callback($request) {
     $user->set_role('subscriber');
 
     pyq_update_user_names($user_id, $name);
+    if (!empty($uid)) {
+        update_user_meta($user_id, 'firebase_uid', $uid);
+    }
 
     return array('success' => true, 'wp_user_id' => $user_id);
 }
@@ -254,6 +266,12 @@ function pyq_handle_firebase_token_sync($request) {
 
     if (empty($email)) {
         return new WP_Error('no_email', 'Email not found in token payload', array('status' => 400));
+    }
+
+    // STRICT EMAIL VERIFICATION GUARD:
+    // If the user does not exist in WordPress yet, refuse to create an account until email is verified!
+    if (!$email_verified && !email_exists($email)) {
+        return new WP_Error('email_not_verified', 'Email verification required in Firebase Auth before creating WordPress account.', array('status' => 403));
     }
 
     if (email_exists($email)) {

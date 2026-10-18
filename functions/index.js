@@ -1,7 +1,7 @@
 const { setGlobalOptions } = require("firebase-functions");
 const { onUserCreated } = require("firebase-functions/v2/identity");
 const { onRequest } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 
@@ -15,53 +15,15 @@ const PYQ_SECRET = "ihQt_9taH_L9B4_gTys_kfT2_gAxn";
 
 const getDb = () => getFirestore("default");
 
-// Triggers 100% guaranteed on every Firebase Auth registration
-exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
-  const user = event.data;
-  if (!user || !user.email) {
-    console.log("[WPSync] User registered without email, skipping WordPress sync.");
-    return;
-  }
-
-  const email = user.email;
+/**
+ * Server-to-server helper to create or confirm a WordPress subscriber account via PYQ REST API
+ */
+async function syncUserToWordPress(uid, email, name = "") {
+  if (!email) return false;
   const username = email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_");
+  const displayName = name || email.split("@")[0];
 
-  // Pause 1.5 seconds to allow client setDoc to complete
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-
-  let name = "";
-
-  // 1. Try reading from named Firestore DB 'default' (matching client app)
-  try {
-    const dbNamed = getDb();
-    const userDoc = await dbNamed.doc(`users/${user.uid}`).get();
-    if (userDoc.exists && userDoc.data() && userDoc.data().name) {
-      name = userDoc.data().name;
-      console.log(`[WPSync] Retrieved name "${name}" from Firestore db 'default' users/${user.uid}`);
-    }
-  } catch (fsErr) {
-    console.warn("[WPSync] Could not fetch from Firestore db 'default':", fsErr.message);
-  }
-
-  // 3. Fallback: Try reading fresh displayName from Firebase Auth Admin SDK
-  if (!name) {
-    try {
-      const freshAuthUser = await admin.auth().getUser(user.uid);
-      if (freshAuthUser && freshAuthUser.displayName) {
-        name = freshAuthUser.displayName;
-        console.log(`[WPSync] Retrieved updated Auth displayName "${name}" for ${email}`);
-      }
-    } catch (authErr) {
-      console.warn("[WPSync] Could not fetch fresh Auth user:", authErr.message);
-    }
-  }
-
-  // 4. Fallback to email prefix if still empty
-  if (!name) {
-    name = email.split("@")[0];
-  }
-
-  console.log(`[WPSync] Syncing Auth User -> Email: ${email}, Name: ${name}, Username: ${username}`);
+  console.log(`[WPSync] Syncing User to WordPress -> UID: ${uid}, Email: ${email}, Name: ${displayName}, Username: ${username}`);
 
   try {
     const endpoint = `${WP_SITE_URL}/wp-json/pyq/v1/server-create-user`;
@@ -74,10 +36,11 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       body: JSON.stringify({
-        uid: user.uid,
+        uid: uid,
         username: username,
         email: email,
-        name: name,
+        name: displayName,
+        email_verified: true,
       }),
     });
 
@@ -87,20 +50,124 @@ exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
       result = JSON.parse(responseText);
     } catch {
       console.error(`[WPSync] WordPress returned HTML response (HTTP ${response.status}) instead of JSON:`, responseText.slice(0, 300));
-      return;
+      return false;
     }
 
     console.log(`[WPSync] WordPress REST API Response (HTTP ${response.status}):`, JSON.stringify(result));
 
     if (response.ok && result.success) {
-      console.log(`[WPSync] Successfully created/synced WP Subscriber user for ${email} with name "${name}"`);
+      console.log(`[WPSync] Successfully created/synced WP Subscriber user for ${email} with name "${displayName}"`);
+      return true;
     } else {
       console.error(`[WPSync] Failed to create/sync WordPress user (${response.status}):`, result);
+      return false;
     }
   } catch (error) {
     console.error("[WPSync] Network error connecting to WordPress:", error);
+    return false;
+  }
+}
+
+// Triggers on Firebase Auth registration (works for Google OAuth or pre-verified signups)
+exports.createWordPressUserOnRegister = onUserCreated(async (event) => {
+  const user = event.data;
+  if (!user || !user.email) {
+    console.log("[WPSync] User registered without email, skipping WordPress sync.");
+    return;
+  }
+
+  // Only create WordPress account if the user's email is already verified (e.g., Google OAuth).
+  // For standard Email/Password signups, emailVerified is false initially;
+  // their WordPress account will be created by createWordPressUserOnVerified as soon as they verify.
+  if (!user.emailVerified) {
+    console.log(`[WPSync] User ${user.email} is not email-verified yet. Skipping initial WordPress account creation.`);
+    return;
+  }
+
+  // Pause 1.5 seconds to allow client initial setDoc to complete
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  let name = "";
+  try {
+    const dbNamed = getDb();
+    const userDoc = await dbNamed.doc(`users/${user.uid}`).get();
+    if (userDoc.exists && userDoc.data() && userDoc.data().name) {
+      name = userDoc.data().name;
+    }
+  } catch (fsErr) {
+    console.warn("[WPSync] Could not fetch name from Firestore db 'default':", fsErr.message);
+  }
+
+  if (!name) {
+    try {
+      const freshAuthUser = await admin.auth().getUser(user.uid);
+      if (freshAuthUser && freshAuthUser.displayName) {
+        name = freshAuthUser.displayName;
+      }
+    } catch (authErr) {
+      console.warn("[WPSync] Could not fetch fresh Auth user:", authErr.message);
+    }
+  }
+
+  const success = await syncUserToWordPress(user.uid, user.email, name);
+  if (success) {
+    try {
+      const dbNamed = getDb();
+      await dbNamed.doc(`users/${user.uid}`).set({ wpSynced: true, wpSyncedAt: new Date().toISOString() }, { merge: true });
+    } catch (e) {
+      console.warn("[WPSync] Could not set wpSynced flag on user doc:", e.message);
+    }
   }
 });
+
+/**
+ * Triggers automatically when a user document in Firestore db 'default' is written/updated.
+ * As soon as emailVerified becomes true (or a verified user signs in and is not yet synced),
+ * this creates their WordPress subscriber account reliably in the background.
+ */
+exports.createWordPressUserOnVerified = onDocumentWritten(
+  {
+    document: "users/{userId}",
+    database: "default",
+  },
+  async (event) => {
+    const after = event.data?.after;
+    if (!after || !after.exists) return; // Doc was deleted
+
+    const afterData = after.data();
+    if (!afterData || !afterData.email) return;
+
+    // Only proceed if email is verified and WordPress sync has not succeeded yet
+    if (!afterData.emailVerified || afterData.wpSynced) return;
+
+    const before = event.data?.before;
+    const beforeData = before?.exists ? before.data() : null;
+
+    const becameVerified = !beforeData?.emailVerified && afterData.emailVerified;
+    const isUnsynced = !afterData.wpSynced;
+
+    if (becameVerified || isUnsynced) {
+      const userId = event.params.userId;
+      console.log(`[WPSync Verified Trigger] User ${afterData.email} (${userId}) verified. Initiating WordPress account creation.`);
+
+      const name = afterData.name || afterData.displayName || "";
+      const success = await syncUserToWordPress(userId, afterData.email, name);
+
+      if (success) {
+        try {
+          const db = getDb();
+          await db.doc(`users/${userId}`).set(
+            { wpSynced: true, wpSyncedAt: new Date().toISOString() },
+            { merge: true }
+          );
+          console.log(`[WPSync Verified Trigger] Marked wpSynced: true for user ${userId}`);
+        } catch (dbErr) {
+          console.warn("[WPSync Verified Trigger] Failed to update wpSynced on Firestore:", dbErr.message);
+        }
+      }
+    }
+  }
+);
 
 /**
  * HTTP Cloud Function: Receives PMPro GOLD upgrade callbacks from WordPress.
@@ -200,7 +267,7 @@ exports.syncGoldStatusFromWP = onRequest({ region: "asia-south1" }, async (req, 
         else if (/\b(3|3m)\b/i.test(planTitle)) parsedMonths = 3;
         else if (/\b(1|1m)\b/i.test(planTitle)) parsedMonths = 1;
       }
-      if (!parsedMonths) parsedMonths = levelId === 3 ? 12 : levelId === 2 ? 6 : 3;
+      if (!parsedMonths) parsedMonths = 3; // Safe default; PHP plugin resolves duration via 6-step waterfall before this point
     }
 
     const chargeAmount = Number(amount || 0);

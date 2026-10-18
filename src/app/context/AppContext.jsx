@@ -309,8 +309,10 @@ export function AppProvider({ children }) {
         setUserRole(finalRole);
         localStorage.setItem('user_role', finalRole);
 
-        // Fail-Safe Token REST API bridge (On Every Login check - controlled by ENABLE_WP_REST_SYNC flag)
-        syncUserToWordPressREST(user).catch(err => console.warn("WP Sync fail-safe warning:", err));
+        // Fail-Safe Token REST API bridge (Only sync/create WP account if email is verified or role is admin)
+        if (user.emailVerified || finalRole === 'admin') {
+          syncUserToWordPressREST(user).catch(err => console.warn("WP Sync fail-safe warning:", err));
+        }
       } else {
         if (user.name) setUserName(user.name);
         else if (user.email) setUserName(user.email.split('@')[0]);
@@ -758,8 +760,26 @@ export function AppProvider({ children }) {
 
   const handleResendVerification = async () => {
     if (ENABLE_FIREBASE && auth && auth.currentUser) {
-      try { await sendEmailVerification(auth.currentUser); alert("Verification link resent!"); } catch (e) { alert("Error: " + e.message); }
+      try { await sendEmailVerification(auth.currentUser); alert("Verification link resent! Please check your email inbox and spam folder."); } catch (e) { alert("Error: " + e.message); }
     } else alert("Mock: Verification email resent to " + currentUser.email);
+  };
+
+  const handleCheckVerification = async () => {
+    if (ENABLE_FIREBASE && auth && auth.currentUser) {
+      try {
+        await auth.currentUser.reload();
+        if (auth.currentUser.emailVerified) {
+          await handleUserSession(auth.currentUser);
+          alert("Email successfully verified! Welcome.");
+        } else {
+          alert("Your email is still not verified. Please check your inbox or spam folder and click the link.");
+        }
+      } catch (e) {
+        alert("Error refreshing verification status: " + e.message);
+      }
+    } else {
+      window.location.reload();
+    }
   };
 
   const handleToggleMark = (id, e) => { e.stopPropagation(); setMarkedQuestions(prev => prev.includes(id) ? prev.filter(qId => qId !== id) : [...prev, id]); hasUnsyncedChanges.current = true; };
@@ -879,17 +899,20 @@ export function AppProvider({ children }) {
         const batch = writeBatch(db);
         batch.delete(doc(db, "questions", id));
         batch.delete(doc(db, "answers_gold", id));
-        batch.delete(doc(db, "questions_gold", id));
-        batch.delete(doc(db, "answers_std", id));
         await batch.commit();
         const nextList = questions.filter(q => q.id !== id);
         setQuestions(nextList);
         localStorage.setItem('questions_data', JSON.stringify(nextList));
-      } catch (e) { console.error('Error deleting question:', e); }
+        showToast('Question deleted successfully.');
+      } catch (e) {
+        console.error('Error deleting question:', e);
+        alert('Failed to delete question: ' + (e.message || 'Missing or insufficient permissions.'));
+      }
     } else {
       const nextList = questions.filter(q => q.id !== id);
       setQuestions(nextList);
       localStorage.setItem('questions_data', JSON.stringify(nextList));
+      showToast('Question deleted successfully.');
     }
   };
 
@@ -1180,7 +1203,7 @@ export function AppProvider({ children }) {
     currentScreen, setCurrentScreen, navigateTo, goBack, questions, announcement, teaser, teaserQuestionCount, curriculumMap, loading, darkMode, setDarkMode,
     upgradeMsg, saveUpgradeMessage,
     currentUser, userName, userRole, showAuthModal, setShowAuthModal, authMode, setAuthMode, viewMode, setViewMode, uniqueTopics,
-    markedQuestions, completedQuestions, sortCompletedSnapshot, handleAuthSubmit, handleGoogleAuth, handleLogout, handleResendVerification, handleToggleMark,
+    markedQuestions, completedQuestions, sortCompletedSnapshot, handleAuthSubmit, handleGoogleAuth, handleLogout, handleResendVerification, handleCheckVerification, handleToggleMark,
     handleToggleRead, handleManualSync, addQuestion, updateQuestion, deleteQuestion, saveCurriculumMap, saveAnnouncement, saveTeaserCount, saveTeaserMessage,
     filters, setFilters, showMarkedOnly, setShowMarkedOnly, isProfileLoaded,
     infoPopupContent, showInfoPopup, infoPopupTarget, setInfoPopupTarget, isInfoModalOpen, setIsInfoModalOpen, closeInfoModal, saveInfoPopupSettings,

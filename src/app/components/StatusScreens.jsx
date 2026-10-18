@@ -79,7 +79,7 @@ export function LoginRequiredView({ message }) {
 }
 
 export function VerificationBlockedScreen() {
-  const { handleResendVerification } = useAppContext();
+  const { handleResendVerification, handleCheckVerification } = useAppContext();
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-6 animate-in fade-in">
       <div className="p-6 bg-yellow-100 dark:bg-yellow-900/50 rounded-full"><AlertTriangle size={64} className="text-yellow-600 dark:text-yellow-400" /></div>
@@ -88,8 +88,8 @@ export function VerificationBlockedScreen() {
         <p className="text-gray-600 dark:text-gray-400 max-w-xs mx-auto">Please verify your email address to access the question bank. Check your inbox and spam folder.</p>
       </div>
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        <button onClick={handleResendVerification} className="bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2"><ExternalLink size={18} /> Resend Verification Email</button>
-        <button onClick={() => window.location.reload()} className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 py-3 rounded-lg font-bold hover:bg-gray-50 dark:hover:bg-gray-600 transition-all flex items-center justify-center gap-2"><RefreshCw size={18} /> I've Verified, Refresh</button>
+        <button onClick={handleResendVerification} className="bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"><ExternalLink size={18} /> Resend Verification Email</button>
+        <button onClick={handleCheckVerification} className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 py-3 rounded-lg font-bold hover:bg-gray-50 dark:hover:bg-gray-600 transition-all flex items-center justify-center gap-2 cursor-pointer"><RefreshCw size={18} /> I've Verified, Refresh</button>
       </div>
     </div>
   );
